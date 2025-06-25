@@ -1,0 +1,15 @@
+nohup: ignoring input
+Traceback (most recent call last):
+  File "/home/prasannasai/Desktop/workspace/productdemo/python/PREDICTION-MODULE/prediction.py", line 9, in <module>
+    import pandas as pd
+  File "/home/prasannasai/.local/lib/python3.10/site-packages/pandas/__init__.py", line 49, in <module>
+    from pandas.core.api import (
+  File "/home/prasannasai/.local/lib/python3.10/site-packages/pandas/core/api.py", line 9, in <module>
+    from pandas.core.dtypes.dtypes import (
+  File "/home/prasannasai/.local/lib/python3.10/site-packages/pandas/core/dtypes/dtypes.py", line 47, in <module>
+    from pandas.errors import PerformanceWarning
+  File "/home/prasannasai/.local/lib/python3.10/site-packages/pandas/errors/__init__.py", line 6, in <module>
+    import ctypes
+  File "/usr/local/lib/python3.10/ctypes/__init__.py", line 8, in <module>
+    from _ctypes import Union, Structure, Array
+ModuleNotFoundError: No module named '_ctypes'

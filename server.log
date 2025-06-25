@@ -1,0 +1,331 @@
+Database loading configuration from: ./conf/config.ini
+Connecting to PostgreSQL at localhost:5432
+2025-06-20 12:13:14 [32minfo[39m: [32mLoading configuration from: /home/vinay/Downloads/c2s_integrate/conf/config.ini[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mShell Command Service initialized with Python: python/venv/bin/python[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mOrchestrator path: /home/vinay/Downloads/c2s_integrate/python/terminal-mcp-orchestrator/orchestrator.py[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mShell Command Service initialized successfully[39m
+ChromaDB configuration loaded from config.ini: http://localhost:8000
+Loading configuration from: /home/vinay/Downloads/c2s_integrate/conf/config.ini
+Checking PostgreSQL database connection
+Running database migrations...
+Connected to PostgreSQL database: copilot
+2025-06-20 12:13:14 [32minfo[39m: [32mLoaded Ollama settings from database[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mOllamaService initialized[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mOllamaService initialized for MCP routes[39m
+Applied migrations: [
+  '001_create_users_table.js',
+  '002_create_sessions_table.js',
+  '003_create_chat_sessions_table.js',
+  '004_create_ai_models_table.js',
+  '005_add_documents_table.js',
+  '006_create_messages_table.js',
+  '007_create_dashboard_metrics_table.js',
+  '008_create_mcp_connections_table.js',
+  '009_create_ollama_settings_table.js',
+  '010_create_database_functions_and_triggers.js',
+  '011_create_vector_stores_table.js',
+  '012_create_document_collections_table.js',
+  '013_create_document_chunks_table.js',
+  '014_create_rag_settings_table.js',
+  '015_create_user_ssh_configurations_table.js',
+  '016_create_user_mcp_server_configurations_table.js',
+  '017_create_user_ai_rules_table.js',
+  '018_create_document_functions.js',
+  '019_add_document_collections_foreign_key.js',
+  '020_add_messages_document_foreign_key.js',
+  '021_create_document_count_table.js',
+  '022_create_message_stats_table.js',
+  '20230924000000_create_user_ssh_configurations.js',
+  '20230924000001_create_user_mcp_server_configurations.js',
+  '023_add_predictor_data_to_messages.js'
+]
+Migration 001_create_users_table.js already applied, skipping
+Migration 002_create_sessions_table.js already applied, skipping
+Migration 003_create_chat_sessions_table.js already applied, skipping
+Migration 004_create_ai_models_table.js already applied, skipping
+Migration 005_add_documents_table.js already applied, skipping
+Migration 006_create_messages_table.js already applied, skipping
+Migration 007_create_dashboard_metrics_table.js already applied, skipping
+Migration 008_create_mcp_connections_table.js already applied, skipping
+Migration 009_create_ollama_settings_table.js already applied, skipping
+Migration 010_create_database_functions_and_triggers.js already applied, skipping
+Migration 011_create_vector_stores_table.js already applied, skipping
+Migration 012_create_document_collections_table.js already applied, skipping
+Migration 013_create_document_chunks_table.js already applied, skipping
+Migration 014_create_rag_settings_table.js already applied, skipping
+Migration 015_create_user_ssh_configurations_table.js already applied, skipping
+Migration 016_create_user_mcp_server_configurations_table.js already applied, skipping
+Running migration: 017_add_predictor_data_to_messages.js
+Adding predictor_data column to messages table...
+2025-06-20 12:13:14 [32minfo[39m: [32mLoaded Ollama settings from database[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mOllamaService initialized[39m
+Successfully added predictor_data column to messages table
+Error running migration 017_add_predictor_data_to_messages.js: error: duplicate key value violates unique constraint "schema_migrations_version_key"
+    at /home/vinay/Downloads/c2s_integrate/node_modules/pg-pool/index.js:45:11
+    at processTicksAndRejections (node:internal/process/task_queues:96:5)
+    at async runMigrations (/home/vinay/Downloads/c2s_integrate/src/database.js:319:11)
+    at async initializeDatabase (/home/vinay/Downloads/c2s_integrate/src/database.js:123:5)
+    at async startServer (/home/vinay/Downloads/c2s_integrate/src/server.js:89:5) {
+  length: 237,
+  severity: 'ERROR',
+  code: '23505',
+  detail: 'Key (version)=(017) already exists.',
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: 'public',
+  table: 'schema_migrations',
+  column: undefined,
+  dataType: undefined,
+  constraint: 'schema_migrations_version_key',
+  file: 'nbtinsert.c',
+  line: '666',
+  routine: '_bt_check_unique'
+}
+Error running migrations: error: duplicate key value violates unique constraint "schema_migrations_version_key"
+    at /home/vinay/Downloads/c2s_integrate/node_modules/pg-pool/index.js:45:11
+    at processTicksAndRejections (node:internal/process/task_queues:96:5)
+    at async runMigrations (/home/vinay/Downloads/c2s_integrate/src/database.js:319:11)
+    at async initializeDatabase (/home/vinay/Downloads/c2s_integrate/src/database.js:123:5)
+    at async startServer (/home/vinay/Downloads/c2s_integrate/src/server.js:89:5) {
+  length: 237,
+  severity: 'ERROR',
+  code: '23505',
+  detail: 'Key (version)=(017) already exists.',
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: 'public',
+  table: 'schema_migrations',
+  column: undefined,
+  dataType: undefined,
+  constraint: 'schema_migrations_version_key',
+  file: 'nbtinsert.c',
+  line: '666',
+  routine: '_bt_check_unique'
+}
+Database initialization error: error: duplicate key value violates unique constraint "schema_migrations_version_key"
+    at /home/vinay/Downloads/c2s_integrate/node_modules/pg-pool/index.js:45:11
+    at processTicksAndRejections (node:internal/process/task_queues:96:5)
+    at async runMigrations (/home/vinay/Downloads/c2s_integrate/src/database.js:319:11)
+    at async initializeDatabase (/home/vinay/Downloads/c2s_integrate/src/database.js:123:5)
+    at async startServer (/home/vinay/Downloads/c2s_integrate/src/server.js:89:5) {
+  length: 237,
+  severity: 'ERROR',
+  code: '23505',
+  detail: 'Key (version)=(017) already exists.',
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: 'public',
+  table: 'schema_migrations',
+  column: undefined,
+  dataType: undefined,
+  constraint: 'schema_migrations_version_key',
+  file: 'nbtinsert.c',
+  line: '666',
+  routine: '_bt_check_unique'
+}
+More details: duplicate key value violates unique constraint "schema_migrations_version_key"
+Database initialization completed
+Migration script scripts/sql/add_model_id_to_ai_models.sql executed successfully
+Model ID migration completed
+Setting session store reference for WebSocket authentication
+Session store reference set in sessionService
+Serving static files from: ./client/build
+WebSocket server initialized
+2025-06-20 12:13:14 [32minfo[39m: [32mRegistering MCP WebSocket message handlers[39m
+Registered message handler for message type: mcp_connect
+Registered message handler for message type: mcp_disconnect
+Registered message handler for message type: mcp_execute_tool
+Set client disconnect callback handler
+Registered MCP WebSocket handlers
+Server running on http://localhost:5682
+WebSocket server running on ws://localhost:5682/ws
+2025-06-20 12:13:14 [32minfo[39m: [32mLoaded Ollama settings from database[39m
+2025-06-20 12:13:14 [32minfo[39m: [32mOllamaService initialized[39m
+Login successful for user: admin
+User role: admin
+Session data: Session {
+  cookie: {
+    path: '/',
+    _expires: 2025-06-21T06:46:05.446Z,
+    originalMaxAge: 86400000,
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax'
+  },
+  userId: '88444324-37b9-4f29-bfa5-ffdf58589bd5',
+  role: 'admin'
+}
+New WebSocket connection attempt
+Connection headers: {
+  host: 'localhost:5682',
+  connection: 'Upgrade',
+  pragma: 'no-cache',
+  'cache-control': 'no-cache',
+  'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  upgrade: 'websocket',
+  origin: 'http://localhost:5682',
+  'sec-websocket-version': '13',
+  'accept-encoding': 'gzip, deflate, br, zstd',
+  'accept-language': 'en-US,en;q=0.9',
+  cookie: 'connect.sid=s%3A57D_7styTVwxxcuhPWpGhUFfVU1bWA5x.5ZLaZ4Lb9zJkuFbzL3BsoO2bkgvyGVOs56JQNzg9cm0',
+  'sec-websocket-key': 'O3HAwInxZNGc6KC9x884FQ==',
+  'sec-websocket-extensions': 'permessage-deflate; client_max_window_bits'
+}
+Connection from IP: 127.0.0.1
+Attempting to authenticate WebSocket connection
+Starting WebSocket authentication process
+Parsed cookies: [ 'connect.sid' ]
+Session cookie found: Yes
+Session store available: Yes
+Extracted session ID: 57D_7styTVwxxcuhPWpGhUFfVU1bWA5x
+Attempting to retrieve session data for session ID: 57D_7styTVwxxcuhPWpGhUFfVU1bWA5x
+Session data retrieved: Yes
+Session data keys: [ 'cookie', 'userId', 'role' ]
+User ID in session: 88444324-37b9-4f29-bfa5-ffdf58589bd5
+WebSocket connection authenticated for user ID: 88444324-37b9-4f29-bfa5-ffdf58589bd5
+Authentication result: User ID: 88444324-37b9-4f29-bfa5-ffdf58589bd5
+WebSocket connection authenticated for user: 88444324-37b9-4f29-bfa5-ffdf58589bd5
+WebSocket client connected for user 88444324-37b9-4f29-bfa5-ffdf58589bd5. Total connections for this user: 1
+Sent connection_established confirmation to user 88444324-37b9-4f29-bfa5-ffdf58589bd5
+Dashboard metrics requested by user: 88444324-37b9-4f29-bfa5-ffdf58589bd5
+Using dashboard_metrics table for metrics
+Dashboard metrics updated
+Sending dashboard metrics response: {
+  userStats: { adminUsers: 1, totalUsers: 4, recentUsers: 1, regularUsers: 3 },
+  messageStats: {
+    totalMessages: 226,
+    recentMessages: 125,
+    totalDocuments: 20,
+    avgResponseTime: 0
+  },
+  licenseUsage: {
+    daysRemaining: 245,
+    totalLicenses: 25,
+    activeLicenses: 4,
+    expirationDate: '2024-12-31'
+  }
+}
+Connecting to ChromaDB server at: http://localhost:8000
+Attempting to get existing collection: rag_docs
+2025-06-20 12:16:08 [32minfo[39m: [32mLoaded Ollama settings from database[39m
+2025-06-20 12:16:08 [32minfo[39m: [32mOllamaService initialized[39m
+2025-06-20 12:16:08 [32minfo[39m: [32mRAG: OllamaService initialized successfully[39m
+RAG: OllamaService initialized successfully
+Retrieved existing ChromaDB collection: rag_docs
+ChromaDB connected successfully
+ChromaDB collection has 8 items
+RAG: Availability check - Vector store has 8 chunks in 1 documents
+2025-06-20 12:16:08 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+Parsing natural language query: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+Original input: SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name
+Executing SQL query: SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name
+Executing query: SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name
+Query returned 20 rows
+First row keys: [ 'table_name' ]
+Query result raw data (first row): {"table_name":"ai_models"}
+Parsing natural language query: "SELECT * FROM ai_models LIMIT 100"
+Original input: SELECT * FROM ai_models LIMIT 100
+Executing SQL query: SELECT * FROM ai_models LIMIT 100
+Checking if table exists: ai_models
+Executing query: SELECT * FROM ai_models LIMIT 100
+Query returned 6 rows
+First row keys: [
+  'id',
+  'name',
+  'model_id',
+  'description',
+  'parameters',
+  'is_active',
+  'created_at',
+  'ollama_model_id',
+  'updated_at'
+]
+Query result raw data (first row): {"id":"037d4a3e-dc58-458f-93b6-b814b1e00cba","name":"nomic-embed-text:latest","model_id":"nomic-embed-text:latest","description":"Ollama model: nomic-embed-text:latest","parameters":{"size":274302450,"modified_at":"2025-05-23T12:18:18.025242469+05:30"},"is_active":false,"created_at":"2025-05-31T17:34:18.931Z","ollama_model_id":"nomic-embed-text:latest","updated_at":"2025-05-31T17:34:18.931Z"}
+RAG: All checks passed, RAG is available
+ChromaDB collection has 8 items
+RAG: Availability check - Vector store has 8 chunks in 1 documents
+2025-06-20 12:16:14 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+RAG: All checks passed, RAG is available
+2025-06-20 12:16:14 [32minfo[39m: [32mRAG is available, processing chat message: "hi..."[39m
+2025-06-20 12:16:14 [32minfo[39m: [32mUsing session context: cfcf50c1-57db-46d4-b670-d7c0a812a1ed[39m
+RAG: Processing chat message with RAG: "hi..." using model mistral:latest
+RAG: Using session ID for context filtering: cfcf50c1-57db-46d4-b670-d7c0a812a1ed
+RAG: Generating embedding for query: "hi..."
+RAG: Using session context: cfcf50c1-57db-46d4-b670-d7c0a812a1ed
+2025-06-20 12:16:14 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+RAG: Successfully generated query embedding, searching for relevant chunks...
+Searching with options: {
+  limit: 5,
+  sessionId: 'cfcf50c1-57db-46d4-b670-d7c0a812a1ed',
+  useChromaDB: ChromaClient {
+    tenant: 'default_tenant',
+    database: 'default_database',
+    authProvider: undefined,
+    api: ApiApi {
+      basePath: 'http://localhost:8000',
+      fetch: [AsyncFunction: chromaFetch],
+      configuration: [Configuration],
+      options: [Object]
+    },
+    _adminClient: AdminClient {
+      tenant: 'default_tenant',
+      database: 'default_database',
+      authProvider: undefined,
+      api: [ApiApi]
+    },
+    _initPromise: Promise { undefined }
+  }
+}
+Searching ChromaDB collection with limit: 5
+Will filter search results by sessionId: cfcf50c1-57db-46d4-b670-d7c0a812a1ed (post-query)
+Post-query filtering for sessionId: cfcf50c1-57db-46d4-b670-d7c0a812a1ed
+After filtering: 5 results remain
+RAG: Found 5 relevant chunks
+RAG: Using context from 5 sources
+RAG: Calling ollamaService.chat with model: mistral:latest
+ChromaDB collection has 8 items
+RAG: Availability check - Vector store has 8 chunks in 1 documents
+2025-06-20 12:16:38 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+RAG: All checks passed, RAG is available
+ChromaDB collection has 8 items
+RAG: Availability check - Vector store has 8 chunks in 1 documents
+2025-06-20 12:17:08 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+RAG: All checks passed, RAG is available
+ChromaDB collection has 8 items
+RAG: Availability check - Vector store has 8 chunks in 1 documents
+2025-06-20 12:17:38 [32minfo[39m: [32mGenerating embedding using model: nomic-embed-text[39m
+RAG: All checks passed, RAG is available
+RAG: Successfully generated response using ollamaService.chat
+Saving message to database - User: 88444324-37b9-4f29-bfa5-ffdf58589bd5, Session: cfcf50c1-57db-46d4-b670-d7c0a812a1ed
+Message length: 2, Response length: 838, isContextUpdate: false
+Message saved successfully with ID: 1411
+Testing connection to localhost:5432/new
+Creating database pool for: localhost:5432/new
+Database operation attempt 1/2
+Database client connected
+Database client acquired successfully
+Database operation completed successfully
+Creating database pool for: localhost:5432/new
+Database operation attempt 1/2
+Database client connected
+Database client acquired successfully
+Database operation completed successfully
+Creating database pool for: localhost:5432/new
+Analyzing data from table: data
+Database operation attempt 1/2
+Database client connected
+Database client acquired successfully
+Database operation completed successfully
+Found 5 columns with 2 total rows
+Generated flow with header + 2 data rows
+WebSocket connection closed for user 88444324-37b9-4f29-bfa5-ffdf58589bd5
+Removed last connection for user 88444324-37b9-4f29-bfa5-ffdf58589bd5
