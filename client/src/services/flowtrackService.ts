@@ -175,6 +175,20 @@ const flowtrackService = {
       console.error('Error analyzing data (branch):', error);
       throw error;
     }
+  },
+
+  // RTL analyze - RTL version-based branching visualization
+  analyzeRTL: async (connection: DatabaseConnection, fileId: string): Promise<RTLFlowAnalysisResult> => {
+    try {
+      const response = await api.post('/flowtrack/analyze-rtl', {
+        connection,
+        fileId
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error analyzing data (RTL):', error);
+      throw error;
+    }
   }
 };
 
@@ -329,6 +343,46 @@ export interface BranchFlowAnalysisResult {
   success: boolean;
   message: string;
   branch_data: BranchFlowData;
+  metadata: {
+    analyzed_at: string;
+    analysis_type: string;
+    table_name: string;
+    total_rows_analyzed: number;
+  };
+}
+
+// RTL Flow Analysis interfaces
+export interface RTLVersionAnalysis {
+  data: Array<{
+    [key: string]: string;
+  }>;
+  copy_patterns: BranchAnalysis;
+  branch_layout: BranchFlowData;
+}
+
+export interface RTLFlowData {
+  type: string;
+  username: string;
+  rtl_versions: string[];
+  version_analyses: {
+    [version: string]: RTLVersionAnalysis;
+  };
+  data_analysis: {
+    rtl_column: string;
+    run_column: string;
+    stage_columns: string[];
+    username: string;
+    total_columns: number;
+    column_order: { [key: string]: number };
+  };
+  total_versions: number;
+  status: string;
+}
+
+export interface RTLFlowAnalysisResult {
+  success: boolean;
+  message: string;
+  rtl_data: RTLFlowData;
   metadata: {
     analyzed_at: string;
     analysis_type: string;

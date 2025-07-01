@@ -773,4 +773,138 @@ router.post('/analyze-branch', isAuthenticated, async (req, res) => {
   }
 });
 
+// New RTL view analyze endpoint
+router.post('/analyze-rtl', isAuthenticated, async (req, res) => {
+  const { connection, fileId } = req.body;
+  const { host, database, username, password } = connection;
+  
+  if (!host || !database || !username || !password || !fileId) {
+    return res.status(400).json({ error: 'Missing required parameters: host, database, username, password, fileId' });
+  }
+
+  let pool;
+  try {
+    pool = createDatabasePool(connection);
+    
+    // Extract table name from fileId (format: table_tablename)
+    const tableName = fileId.replace('table_', '');
+    
+    console.log(`Analyzing data for RTL view from table: ${tableName}`);
+    
+    // Get all data for RTL analysis
+    const result = await executeWithRetry(pool, async (client) => {
+      const dataQuery = `SELECT * FROM "${tableName}" ORDER BY 1 LIMIT 1000`; // Order by first column, limit for performance
+      return await client.query(dataQuery);
+    });
+    
+    await pool.end();
+    
+    // Use AI model to analyze data and generate RTL view
+    if (result.rows.length === 0) {
+      throw new Error('No data found in the selected table');
+    }
+    
+    // Create temporary CSV file for RTL analysis
+    const tempDir = path.join(__dirname, '../../temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const tempFile = path.join(tempDir, `${tableName}_rtl_${Date.now()}.csv`);
+    
+    // Convert query result to CSV for RTL analysis
+    const headers = Object.keys(result.rows[0]);
+    const csvContent = [
+      headers.join(','),
+      ...result.rows.map(row => 
+        headers.map(header => {
+          const value = row[header];
+          // Escape commas and quotes in CSV
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value || '';
+        }).join(',')
+      )
+    ].join('\n');
+    
+    fs.writeFileSync(tempFile, csvContent);
+    
+    // Call RTL analysis using the new RTL analyzer
+    const pythonScript = path.join(__dirname, '../../python/RUN_STATUS/rtl_analyzer.py');
+    
+    const rtlData = await new Promise((resolve, reject) => {
+      const pythonProcess = spawn('python3', [pythonScript, tempFile]);
+
+      let pythonOutput = '';
+      let pythonError = '';
+      
+      pythonProcess.stdout.on('data', (data) => {
+        pythonOutput += data.toString();
+      });
+      
+      pythonProcess.stderr.on('data', (data) => {
+        pythonError += data.toString();
+      });
+      
+      pythonProcess.on('close', (code) => {
+        // Clean up temp file
+        try {
+          fs.unlinkSync(tempFile);
+        } catch (e) {
+          console.error('Error cleaning up temp file:', e);
+        }
+        
+        if (code !== 0) {
+          console.error('Python RTL analysis error:', pythonError);
+          reject(new Error(`RTL analysis failed: ${pythonError}`));
+          return;
+        }
+        
+        try {
+          const analysisResult = JSON.parse(pythonOutput);
+          
+          if (analysisResult.error) {
+            reject(new Error(`RTL analysis error: ${analysisResult.error}`));
+            return;
+          }
+          
+          resolve(analysisResult);
+        } catch (parseError) {
+          console.error('Error parsing RTL analysis output:', parseError);
+          console.error('RTL analysis output:', pythonOutput);
+          reject(new Error(`Failed to parse RTL analysis result: ${parseError.message}`));
+        }
+      });
+    });
+    
+    // Add metadata about the analysis
+    const responseData = {
+      success: true,
+      message: 'RTL analysis completed successfully',
+      rtl_data: rtlData,
+      metadata: {
+        table_name: tableName,
+        total_rows_analyzed: result.rows.length,
+        analysis_type: 'rtl_view',
+        analyzed_at: new Date().toISOString()
+      }
+    };
+    
+    console.log(`Generated RTL view with ${rtlData.rtl_versions ? rtlData.rtl_versions.length : 0} versions`);
+    res.json(responseData);
+    
+  } catch (error) {
+    console.error('Error analyzing data for RTL view:', error);
+    if (pool) {
+      try { await pool.end(); } catch (e) { /* ignore cleanup errors */ }
+    }
+    res.status(500).json({ 
+      error: 'Failed to analyze data for RTL view',
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
 module.exports = router;

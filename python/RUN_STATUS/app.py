@@ -6,6 +6,7 @@ import logging
 import numpy as np
 from enhanced_layout_generator import analyze_and_generate_advanced_layout
 from branch_analyzer import analyze_branch_view
+from rtl_analyzer import analyze_rtl_view
 
 # Set up logginghh
 logging.basicConfig(level=logging.INFO)
@@ -197,6 +198,65 @@ def upload_file_branch():
 
     except Exception as e:
         logger.error(f"Unexpected error in branch upload: {str(e)}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+
+@app.route('/upload-rtl', methods=['POST'])
+def upload_file_rtl():
+    """Upload and analyze file for RTL view"""
+    try:
+        if 'file' not in request.files:
+            logger.error("No file part in request")
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if not file.filename:
+            logger.error("No file selected")
+            return jsonify({'error': 'No file selected'}), 400
+            
+        logger.info(f"Processing file for RTL view: {file.filename}")
+        
+        # Save file
+        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(file_path)
+        logger.info(f"File saved to: {file_path}")
+
+        try:
+            # Generate RTL visualization
+            logger.info("Analyzing data for RTL view patterns...")
+            layout_data = analyze_rtl_view(file_path)
+            
+            if not layout_data:
+                logger.error("Failed to generate valid RTL layout")
+                return jsonify({
+                    'error': 'Failed to generate RTL visualization',
+                    'details': 'No valid RTL layout data generated'
+                }), 500
+            
+            # Convert numpy/pandas types to JSON serializable types
+            layout_data = convert_to_json_serializable(layout_data)
+            
+            logger.info(f"Successfully generated RTL layout with {len(layout_data.get('rtl_versions', []))} versions")
+            return jsonify(layout_data)
+
+        except ValueError as ve:
+            logger.error(f"RTL analysis validation error: {str(ve)}")
+            return jsonify({'error': str(ve)}), 400
+        except Exception as e:
+            logger.error(f"RTL analysis processing error: {str(e)}")
+            return jsonify({
+                'error': 'Error processing file for RTL view',
+                'details': str(e)
+            }), 500
+        finally:
+            # Clean up uploaded file
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up file: {file_path}")
+            except:
+                pass
+
+    except Exception as e:
+        logger.error(f"Unexpected error in RTL upload: {str(e)}")
         return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 if __name__ == '__main__':

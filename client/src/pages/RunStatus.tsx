@@ -8,8 +8,6 @@ import {
   ArrowPathIcon,
   PauseIcon,
   TableCellsIcon,
-  ChartPieIcon,
-  DocumentTextIcon,
   UserIcon,
   CpuChipIcon,
   ShareIcon,
@@ -18,10 +16,11 @@ import {
 import { motion } from 'framer-motion';
 import runService from '../services/runService';
 import userService from '../services/userService';
-import flowtrackService, { DatabaseConnection, DatabaseFile, SimpleFlowAnalysisResult, BranchFlowAnalysisResult } from '../services/flowtrackService';
+import flowtrackService, { DatabaseConnection, DatabaseFile, SimpleFlowAnalysisResult, BranchFlowAnalysisResult, RTLFlowAnalysisResult } from '../services/flowtrackService';
 import DatabaseConnectionModal from '../components/DatabaseConnectionModal';
 import SimpleFlowVisualization from '../components/SimpleFlowVisualization';
 import BranchFlowVisualization from '../components/BranchFlowVisualization';
+import RTLFlowVisualization from '../components/RTLFlowVisualization';
 
 // Types for our run data
 interface RunStep {
@@ -67,9 +66,9 @@ export default function RunStatus() {
   const [selectedRunType, setSelectedRunType] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'flow' | 'waffle' | 'simple-flow' | 'branch-flow'>('list');
+  const [viewMode, setViewMode] = useState<'simple-flow' | 'branch-flow' | 'rtl-flow'>('simple-flow');
   
-  // Simple Flow related state
+  // Database connection state
   const [showDbModal, setShowDbModal] = useState(false);
   const [dbConnection, setDbConnection] = useState<DatabaseConnection | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -77,12 +76,19 @@ export default function RunStatus() {
   const [selectedFile, setSelectedFile] = useState<DatabaseFile | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  
+  // Simple Flow related state
   const [simpleFlowData, setSimpleFlowData] = useState<SimpleFlowAnalysisResult | null>(null);
   const [isSimpleAnalyzing, setIsSimpleAnalyzing] = useState(false);
   
   // Branch Flow related state
   const [branchFlowData, setBranchFlowData] = useState<BranchFlowAnalysisResult | null>(null);
   const [isBranchAnalyzing, setIsBranchAnalyzing] = useState(false);
+
+  // RTL Flow related state
+  const [rtlFlowData, setRtlFlowData] = useState<RTLFlowAnalysisResult | null>(null);
+  const [isRtlAnalyzing, setIsRtlAnalyzing] = useState(false);
+  const [availableRtlFiles, setAvailableRtlFiles] = useState<DatabaseFile[]>([]);
 
   // Fetch users if admin
   useEffect(() => {
@@ -176,11 +182,11 @@ export default function RunStatus() {
     const startTime = new Date(start);
     const endTime = end ? new Date(end) : new Date();
     const durationMs = endTime.getTime() - startTime.getTime();
-    
+
     const hours = Math.floor(durationMs / (1000 * 60 * 60));
     const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((durationMs % (1000 * 60)) / 1000);
-    
+
     return `${hours > 0 ? hours + 'h ' : ''}${minutes}m ${seconds}s`;
   };
 
@@ -189,7 +195,6 @@ export default function RunStatus() {
     setIsConnecting(true);
     setDbError(null);
 
-    
     try {
       // Test connection first
       const connectionResult = await flowtrackService.testConnection(connection);
@@ -198,7 +203,6 @@ export default function RunStatus() {
         setDbConnection(connection);
         setIsConnected(true);
 
-        
         // Fetch files from database
         const files = await flowtrackService.getFiles(connection);
         setDbFiles(files);
@@ -226,12 +230,12 @@ export default function RunStatus() {
     setSelectedFile(null);
     setSimpleFlowData(null);
     setBranchFlowData(null);
+    setRtlFlowData(null);
     setDbError(null);
     setIsSimpleAnalyzing(false);
     setIsBranchAnalyzing(false);
+    setIsRtlAnalyzing(false);
   };
-
-
 
   const handleSimpleAnalyze = async (file: DatabaseFile) => {
     if (!dbConnection) return;
@@ -273,510 +277,408 @@ export default function RunStatus() {
     }
   };
 
-  const handleViewModeChange = (mode: 'list' | 'flow' | 'waffle' | 'simple-flow' | 'branch-flow') => {
+  const handleRtlAnalyze = async (file: DatabaseFile) => {
+    if (!dbConnection) return;
+    
+    setIsRtlAnalyzing(true);
+    setDbError(null);
+    
+    try {
+      console.log('Starting RTL analysis for file:', file.filename);
+      const analysisResult = await flowtrackService.analyzeRTL(dbConnection, file.id);
+      
+      setRtlFlowData(analysisResult);
+      setSelectedFile(file);
+    } catch (error: any) {
+      console.error('RTL analysis error:', error);
+      setDbError(error.response?.data?.details || error.message || 'RTL analysis failed');
+    } finally {
+      setIsRtlAnalyzing(false);
+    }
+  };
+
+  const handleViewModeChange = (mode: 'simple-flow' | 'branch-flow' | 'rtl-flow') => {
     setViewMode(mode);
     
     // If switching to flow modes and no connection exists, show modal
-    if ((mode === 'simple-flow' || mode === 'branch-flow') && !dbConnection) {
+    if (!dbConnection) {
       setShowDbModal(true);
     }
   };
+
+  // Filter dbFiles for RTL_version column when in RTL view and dbFiles change
+  useEffect(() => {
+    if (viewMode === 'rtl-flow' && dbFiles.length > 0) {
+      // Only show tables that have RTL_version column (case insensitive)
+      const filtered = dbFiles.filter(f =>
+        Array.isArray(f.columns) && f.columns.some(col => 
+          col.toLowerCase().replace('_', '').replace(' ', '') === 'rtlversion'
+        )
+      );
+      setAvailableRtlFiles(filtered);
+    } else {
+      setAvailableRtlFiles([]);
+    }
+  }, [viewMode, dbFiles]);
 
   return (
     <div
       className="min-h-screen p-4 md:p-6 relative overflow-hidden"
       style={{
-        background: 'linear-gradient(to-b, var(--color-bg), var(--color-bg-dark))',
+        background: 'linear-gradient(135deg, var(--color-bg) 0%, var(--color-bg-dark) 100%)',
       }}
     >
-      {/* Background Pattern */}
-      <div className="absolute inset-0 opacity-10" style={{
-        backgroundImage: 'radial-gradient(circle at 2px 2px, var(--color-primary) 1px, transparent 0)',
-        backgroundSize: '40px 40px',
+      {/* Enhanced Background Pattern */}
+      <div className="absolute inset-0 opacity-5" style={{
+        backgroundImage: 'radial-gradient(circle at 25% 25%, var(--color-primary) 2px, transparent 2px), radial-gradient(circle at 75% 75%, var(--color-secondary) 1px, transparent 1px)',
+        backgroundSize: '60px 60px, 40px 40px',
       }} />
 
-      <div className="max-w-7xl mx-auto relative z-10 space-y-6">
-        {/* Header */}
+      <div className="max-w-7xl mx-auto relative z-10 space-y-8">
+        {/* Enhanced Header */}
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
+          initial={{ opacity: 0, y: -30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="p-6 rounded-xl backdrop-blur-sm"
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="p-8 rounded-2xl backdrop-blur-md"
           style={{
-            background: 'linear-gradient(to-r, var(--color-surface), var(--color-surface-dark))',
+            background: 'linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-dark) 100%)',
             border: '1px solid var(--color-border)',
-            boxShadow: '0 10px 25px -5px var(--color-shadow), 0 8px 10px -6px var(--color-shadow-light)',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
+            boxShadow: '0 20px 40px -10px var(--color-shadow), 0 10px 20px -5px var(--color-shadow-light)',
           }}
         >
-          <h2 className="text-2xl md:text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+          <motion.h2 
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="text-3xl md:text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"
+          >
             {selectedUser ? `${selectedUser.name}'s Run Status` : 'Physical Design Run Status'}
-          </h2>
-          <p style={{ color: 'var(--color-text-secondary)' }}>
+          </motion.h2>
+          <motion.p 
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            style={{ color: 'var(--color-text-secondary)' }}
+            className="text-lg"
+          >
             {isAdmin() 
               ? selectedUser 
                 ? `Viewing run status for ${selectedUser.name}`
                 : 'Monitor and manage IC design runs across the platform' 
               : 'Track the status of your IC design runs'}
-          </p>
+          </motion.p>
         </motion.div>
 
-      {/* User selection for admins */}
-      {isAdmin() && users.length > 0 && (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="p-4 rounded-xl shadow-card border" 
-          style={{ 
-            backgroundColor: 'var(--color-surface)',
-            borderColor: 'var(--color-border)',
-            boxShadow: '0 20px 25px -5px var(--color-shadow), 0 10px 10px -5px var(--color-shadow-light)',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
-            position: 'relative',
-            zIndex: 10,
-          }}
-        >
-          <h3 className="text-lg font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Select User</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <motion.div 
-              whileHover={{ y: -5, boxShadow: '0 10px 15px -3px var(--color-shadow), 0 4px 6px -2px var(--color-shadow-light)' }}
-              onClick={() => setSelectedUserId(null)}
-              className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                selectedUserId === null 
-                  ? 'border-primary bg-primary-light' 
-                  : 'hover:bg-surface-light'
-              }`}
-              style={{ 
-                borderColor: selectedUserId === null ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: selectedUserId === null ? 'var(--color-primary-10)' : 'var(--color-surface)',
-                transition: 'all 0.3s ease',
-              }}
-            >
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{
-                  backgroundColor: 'var(--color-primary-20)',
-                  color: 'var(--color-primary)'
-                }}>
-                  <UserIcon className="w-4 h-4" />
-                </div>
-                <div className="ml-3">
-                  <div className="font-medium" style={{ color: 'var(--color-text)' }}>All Users</div>
-                  <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>View runs from all users</div>
-                </div>
-              </div>
-            </motion.div>
-            
-            {users.map(u => (
+        {/* Enhanced User selection for admins */}
+        {isAdmin() && users.length > 0 && (
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="p-6 rounded-2xl shadow-card border backdrop-blur-md" 
+            style={{ 
+              backgroundColor: 'var(--color-surface)',
+              borderColor: 'var(--color-border)',
+              boxShadow: '0 25px 50px -12px var(--color-shadow)',
+            }}
+          >
+            <h3 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-text)' }}>Select User</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <motion.div 
-                key={u.id}
-                whileHover={{ y: -5, boxShadow: '0 10px 15px -3px var(--color-shadow), 0 4px 6px -2px var(--color-shadow-light)' }}
-                onClick={() => setSelectedUserId(u.id)}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedUserId === u.id 
-                    ? 'border-primary bg-primary-light' 
-                    : 'hover:bg-surface-light'
+                whileHover={{ y: -8, scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                onClick={() => setSelectedUserId(null)}
+                className={`p-4 rounded-xl border cursor-pointer transition-all duration-300 ${
+                  selectedUserId === null 
+                    ? 'border-primary bg-primary-light shadow-lg' 
+                    : 'hover:bg-surface-light hover:shadow-md'
                 }`}
                 style={{ 
-                  borderColor: selectedUserId === u.id ? 'var(--color-primary)' : 'var(--color-border)',
-                  backgroundColor: selectedUserId === u.id ? 'var(--color-primary-10)' : 'var(--color-surface)',
-                  transition: 'all 0.3s ease',
+                  borderColor: selectedUserId === null ? 'var(--color-primary)' : 'var(--color-border)',
+                  backgroundColor: selectedUserId === null ? 'var(--color-primary-10)' : 'var(--color-surface)',
                 }}
               >
                 <div className="flex items-center">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center font-semibold" style={{
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
                     backgroundColor: 'var(--color-primary-20)',
                     color: 'var(--color-primary)'
                   }}>
-                    {u.name ? u.name.charAt(0).toUpperCase() : u.username.charAt(0).toUpperCase()}
+                    <UserIcon className="w-5 h-5" />
                   </div>
-                  <div className="ml-3">
-                    <div className="font-medium" style={{ color: 'var(--color-text)' }}>{u.name || u.username}</div>
-                    <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{u.username}</div>
+                  <div className="ml-4">
+                    <div className="font-semibold" style={{ color: 'var(--color-text)' }}>All Users</div>
+                    <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>View runs from all users</div>
                   </div>
                 </div>
               </motion.div>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
-      {/* Filters and view toggle */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className="p-0 rounded-xl shadow-card border overflow-hidden" 
-        style={{ 
-          backgroundColor: 'var(--color-surface)',
-          borderColor: 'var(--color-border)',
-          boxShadow: '0 20px 25px -5px var(--color-shadow), 0 10px 10px -5px var(--color-shadow-light)',
-          transform: 'translateZ(0)',
-          backfaceVisibility: 'hidden',
-          position: 'relative',
-          zIndex: 10,
-        }}
-      >
-        <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4 mb-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between">
-            <h3 className="text-lg font-semibold text-white flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-              </svg>
-              {selectedUser ? `Runs for ${selectedUser.name}` : 'All Runs'}
-            </h3>
-          
-            <div className="flex space-x-2 mt-2 md:mt-0">
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleViewModeChange('list')}
-                className="flex items-center px-3 py-1.5 rounded-lg transition-all"
-                style={{ 
-                  backgroundColor: viewMode === 'list' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  boxShadow: viewMode === 'list' ? '0 2px 4px rgba(0, 0, 0, 0.2)' : 'none'
-                }}
-              >
-                <TableCellsIcon className="w-4 h-4 mr-2" />
-                List View
-              </motion.button>
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleViewModeChange('flow')}
-                className="flex items-center px-3 py-1.5 rounded-lg transition-all"
-                style={{ 
-                  backgroundColor: viewMode === 'flow' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  boxShadow: viewMode === 'flow' ? '0 2px 4px rgba(0, 0, 0, 0.2)' : 'none'
-                }}
-              >
-                <ChartPieIcon className="w-4 h-4 mr-2" />
-                Flow View
-              </motion.button>
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleViewModeChange('waffle')}
-                className="flex items-center px-3 py-1.5 rounded-lg transition-all"
-                style={{ 
-                  backgroundColor: viewMode === 'waffle' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  boxShadow: viewMode === 'waffle' ? '0 2px 4px rgba(0, 0, 0, 0.2)' : 'none'
-                }}
-              >
-                <DocumentTextIcon className="w-4 h-4 mr-2" />
-                Waffle View
-              </motion.button>
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleViewModeChange('simple-flow')}
-                className="flex items-center px-3 py-1.5 rounded-lg transition-all"
-                style={{ 
-                  backgroundColor: viewMode === 'simple-flow' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  boxShadow: viewMode === 'simple-flow' ? '0 2px 4px rgba(0, 0, 0, 0.2)' : 'none'
-                }}
-              >
-                <ShareIcon className="w-4 h-4 mr-2" />
-                Simple Flow
-              </motion.button>
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleViewModeChange('branch-flow')}
-                className="flex items-center px-3 py-1.5 rounded-lg transition-all"
-                style={{ 
-                  backgroundColor: viewMode === 'branch-flow' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  boxShadow: viewMode === 'branch-flow' ? '0 2px 4px rgba(0, 0, 0, 0.2)' : 'none'
-                }}
-              >
-                <CircleStackIcon className="w-4 h-4 mr-2" />
-                Branch Flow
-              </motion.button>
-
+              
+              {users.map((u, index) => (
+                <motion.div 
+                  key={u.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                  whileHover={{ y: -8, scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedUserId(u.id)}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-300 ${
+                    selectedUserId === u.id 
+                      ? 'border-primary bg-primary-light shadow-lg' 
+                      : 'hover:bg-surface-light hover:shadow-md'
+                  }`}
+                  style={{ 
+                    borderColor: selectedUserId === u.id ? 'var(--color-primary)' : 'var(--color-border)',
+                    backgroundColor: selectedUserId === u.id ? 'var(--color-primary-10)' : 'var(--color-surface)',
+                  }}
+                >
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-semibold" style={{
+                      backgroundColor: 'var(--color-primary-20)',
+                      color: 'var(--color-primary)'
+                    }}>
+                      {u.name ? u.name.charAt(0).toUpperCase() : u.username.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="ml-4">
+                      <div className="font-semibold" style={{ color: 'var(--color-text)' }}>{u.name || u.username}</div>
+                      <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{u.username}</div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
             </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6">
-          <div>
-            <label htmlFor="search" className="block text-sm mb-1" style={{ color: 'var(--color-text-muted)' }}>Search</label>
-            <input
-              id="search"
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search runs..."
-              className="w-full rounded-lg px-3 py-2"
-              style={{
-                backgroundColor: 'var(--color-surface-dark)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)'
-              }}
-            />
-          </div>
-          <div>
-            <label htmlFor="type" className="block text-sm mb-1" style={{ color: 'var(--color-text-muted)' }}>Run Type</label>
-            <select
-              id="type"
-              value={selectedRunType || ''}
-              onChange={(e) => setSelectedRunType(e.target.value || null)}
-              className="w-full rounded-lg px-3 py-2"
-              style={{
-                backgroundColor: 'var(--color-surface-dark)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)'
-              }}
-            >
-              <option value="">All Types</option>
-              <option value="Timing">Timing</option>
-              <option value="QoR">QoR</option>
-              <option value="DRC">DRC</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="status" className="block text-sm mb-1" style={{ color: 'var(--color-text-muted)' }}>Status</label>
-            <select
-              id="status"
-              value={selectedStatus || ''}
-              onChange={(e) => setSelectedStatus(e.target.value || null)}
-              className="w-full rounded-lg px-3 py-2"
-              style={{
-                backgroundColor: 'var(--color-surface-dark)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)'
-              }}
-            >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="running">Running</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="paused">Paused</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <motion.button 
-              whileHover={{ scale: 1.05, boxShadow: '0 4px 6px -1px var(--color-shadow), 0 2px 4px -1px var(--color-shadow-light)' }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setSelectedRunType(null);
-                setSelectedStatus(null);
-                setSearchTerm('');
-              }}
-              className="px-4 py-2 rounded-lg transition-all"
-              style={{
-                background: 'linear-gradient(to-r, var(--color-primary), var(--color-primary-dark))',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                boxShadow: '0 2px 4px var(--color-shadow)'
-              }}
-            >
-              Clear Filters
-            </motion.button>
-          </div>
-        </div>
-      </motion.div>
+          </motion.div>
+        )}
 
-      {/* Run list */}
-      {loading ? (
+        {/* Enhanced Flow View Selection */}
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="p-8 rounded-xl shadow-card border flex items-center justify-center" 
+          transition={{ duration: 0.8, delay: 0.4 }}
+          className="p-0 rounded-2xl shadow-card border overflow-hidden backdrop-blur-md" 
           style={{ 
             backgroundColor: 'var(--color-surface)',
             borderColor: 'var(--color-border)',
-            boxShadow: '0 20px 25px -5px var(--color-shadow), 0 10px 10px -5px var(--color-shadow-light)',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
-            position: 'relative',
-            zIndex: 10,
+            boxShadow: '0 25px 50px -12px var(--color-shadow)',
           }}
         >
-          <div className="flex flex-col items-center py-12">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-full animate-spin" style={{
-                borderWidth: '4px',
-                borderStyle: 'solid',
-                borderColor: 'var(--color-primary-30)',
-                borderTopColor: 'var(--color-primary)',
-                boxShadow: '0 0 15px var(--color-primary-40)'
-              }}></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <CpuChipIcon className="w-6 h-6" style={{ color: 'var(--color-primary)' }} />
-              </div>
+          <div className="bg-gradient-to-r from-[var(--color-primary)] via-[var(--color-primary-dark)] to-[var(--color-secondary)] px-8 py-6">
+            <div className="flex flex-col items-center text-center">
+              <motion.h3 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.6 }}
+                className="text-2xl font-bold text-white mb-2"
+              >
+                Flow Analysis Views
+              </motion.h3>
+              <motion.p 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.8 }}
+                className="text-white/80 mb-6"
+              >
+                Choose your preferred analysis method
+              </motion.p>
+              
+              {/* Centered Flow View Buttons */}
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.8, delay: 1.0 }}
+                className="flex justify-center items-center space-x-4"
+              >
+                <motion.button 
+                  whileHover={{ scale: 1.08, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  onClick={() => handleViewModeChange('simple-flow')}
+                  className="flex items-center px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                  style={{ 
+                    backgroundColor: viewMode === 'simple-flow' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.15)',
+                    color: viewMode === 'simple-flow' ? 'var(--color-primary)' : 'white',
+                    border: '2px solid rgba(255, 255, 255, 0.3)',
+                    boxShadow: viewMode === 'simple-flow' ? '0 8px 25px rgba(0, 0, 0, 0.15)' : '0 4px 15px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(10px)',
+                  }}
+                >
+                  <ShareIcon className="w-5 h-5 mr-2" />
+                  Simple Flow
+                </motion.button>
+                
+                <motion.button 
+                  whileHover={{ scale: 1.08, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  onClick={() => handleViewModeChange('branch-flow')}
+                  className="flex items-center px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                  style={{ 
+                    backgroundColor: viewMode === 'branch-flow' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.15)',
+                    color: viewMode === 'branch-flow' ? 'var(--color-primary)' : 'white',
+                    border: '2px solid rgba(255, 255, 255, 0.3)',
+                    boxShadow: viewMode === 'branch-flow' ? '0 8px 25px rgba(0, 0, 0, 0.15)' : '0 4px 15px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(10px)',
+                  }}
+                >
+                  <CircleStackIcon className="w-5 h-5 mr-2" />
+                  Branch Flow
+                </motion.button>
+                
+                <motion.button 
+                  whileHover={{ scale: 1.08, y: -3 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  onClick={() => handleViewModeChange('rtl-flow')}
+                  className="flex items-center px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                  style={{ 
+                    backgroundColor: viewMode === 'rtl-flow' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.15)',
+                    color: viewMode === 'rtl-flow' ? 'var(--color-primary)' : 'white',
+                    border: '2px solid rgba(255, 255, 255, 0.3)',
+                    boxShadow: viewMode === 'rtl-flow' ? '0 8px 25px rgba(0, 0, 0, 0.15)' : '0 4px 15px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(10px)',
+                  }}
+                >
+                  <CpuChipIcon className="w-5 h-5 mr-2" />
+                  RTL View
+                </motion.button>
+              </motion.div>
             </div>
-            <h3 className="mt-6 text-xl font-semibold" style={{ color: 'var(--color-text)' }}>Loading Runs</h3>
-            <p className="mt-2" style={{ color: 'var(--color-text-secondary)' }}>Please wait while we fetch your run data...</p>
           </div>
-        </motion.div>
-      ) : filteredRuns.length === 0 ? (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="p-8 rounded-xl shadow-card border text-center" 
-          style={{ 
-            backgroundColor: 'var(--color-surface)', 
-            borderColor: 'var(--color-border)',
-            boxShadow: '0 20px 25px -5px var(--color-shadow), 0 10px 10px -5px var(--color-shadow-light)',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
-            position: 'relative',
-            zIndex: 10,
-          }}
-        >
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4" style={{
-              backgroundColor: 'var(--color-primary-10)',
-              color: 'var(--color-primary)'
-            }}>
-              <CpuChipIcon className="w-10 h-10" />
+          
+          {/* Enhanced Filters Section */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 1.2 }}
+            className="grid grid-cols-1 md:grid-cols-4 gap-6 p-8"
+          >
+            <div>
+              <label htmlFor="search" className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-muted)' }}>Search</label>
+              <input
+                id="search"
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search runs..."
+                className="w-full rounded-xl px-4 py-3 transition-all duration-300 focus:ring-2 focus:ring-primary focus:border-transparent"
+                style={{
+                  backgroundColor: 'var(--color-surface-dark)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                  border: '2px solid var(--color-border)'
+                }}
+              />
             </div>
-            <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>No Runs Found</h3>
-            <p style={{ color: 'var(--color-text-muted)' }}>No runs match your current filters or no runs have been created yet.</p>
-            <motion.button 
-              whileHover={{ scale: 1.05, boxShadow: '0 4px 6px -1px var(--color-shadow), 0 2px 4px -1px var(--color-shadow-light)' }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setSelectedRunType(null);
-                setSelectedStatus(null);
-                setSearchTerm('');
-              }}
-              className="mt-6 px-6 py-3 rounded-lg transition-all"
-              style={{
-                background: 'linear-gradient(to-r, var(--color-primary), var(--color-primary-dark))',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                boxShadow: '0 2px 4px var(--color-shadow)'
-              }}
-            >
-              Clear Filters
-            </motion.button>
-          </div>
+            <div>
+              <label htmlFor="type" className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-muted)' }}>Run Type</label>
+              <select
+                id="type"
+                value={selectedRunType || ''}
+                onChange={(e) => setSelectedRunType(e.target.value || null)}
+                className="w-full rounded-xl px-4 py-3 transition-all duration-300 focus:ring-2 focus:ring-primary focus:border-transparent"
+                style={{
+                  backgroundColor: 'var(--color-surface-dark)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                  border: '2px solid var(--color-border)'
+                }}
+              >
+                <option value="">All Types</option>
+                <option value="Timing">Timing</option>
+                <option value="QoR">QoR</option>
+                <option value="DRC">DRC</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="status" className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-muted)' }}>Status</label>
+              <select
+                id="status"
+                value={selectedStatus || ''}
+                onChange={(e) => setSelectedStatus(e.target.value || null)}
+                className="w-full rounded-xl px-4 py-3 transition-all duration-300 focus:ring-2 focus:ring-primary focus:border-transparent"
+                style={{
+                  backgroundColor: 'var(--color-surface-dark)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                  border: '2px solid var(--color-border)'
+                }}
+              >
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="running">Running</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="paused">Paused</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <motion.button 
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                onClick={() => {
+                  setSelectedRunType(null);
+                  setSelectedStatus(null);
+                  setSearchTerm('');
+                }}
+                className="w-full px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                style={{
+                  background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                  color: 'white',
+                  border: 'none',
+                  boxShadow: '0 4px 15px var(--color-primary-30)'
+                }}
+              >
+                Clear Filters
+              </motion.button>
+            </div>
+          </motion.div>
         </motion.div>
-      ) : (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="p-0 rounded-xl shadow-card border overflow-hidden" 
-          style={{ 
-            backgroundColor: 'var(--color-surface)', 
-            borderColor: 'var(--color-border)',
-            boxShadow: '0 20px 25px -5px var(--color-shadow), 0 10px 10px -5px var(--color-shadow-light)',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
-            position: 'relative',
-            zIndex: 10,
-          }}
-        >
-          {viewMode === 'list' && (
-            <>
-              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <TableCellsIcon className="h-5 w-5 mr-2" />
-                  List View
-                </h3>
-              </div>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center justify-center">
-                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4" style={{
-                    backgroundColor: 'var(--color-primary-10)',
-                    color: 'var(--color-primary)'
-                  }}>
-                    <TableCellsIcon className="w-10 h-10" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>List View Coming Soon</h3>
-                  <p style={{ color: 'var(--color-text-muted)' }}>The run status list view is under development and will be available soon.</p>
-                </div>
-              </div>
-            </>
-          )}
-          
-          {viewMode === 'flow' && (
-            <>
-              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <ChartPieIcon className="h-5 w-5 mr-2" />
-                  Flow View
-                </h3>
-              </div>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center justify-center">
-                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4" style={{
-                    backgroundColor: 'var(--color-primary-10)',
-                    color: 'var(--color-primary)'
-                  }}>
-                    <ChartPieIcon className="w-10 h-10" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Flow View Coming Soon</h3>
-                  <p style={{ color: 'var(--color-text-muted)' }}>The run status flow view is under development and will be available soon.</p>
-                </div>
-              </div>
-            </>
-          )}
-          
-          {viewMode === 'waffle' && (
-            <>
-              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <DocumentTextIcon className="h-5 w-5 mr-2" />
-                  Waffle View
-                </h3>
-              </div>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center justify-center">
-                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4" style={{
-                    backgroundColor: 'var(--color-primary-10)',
-                    color: 'var(--color-primary)'
-                  }}>
-                    <DocumentTextIcon className="w-10 h-10" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Waffle View Coming Soon</h3>
-                  <p style={{ color: 'var(--color-text-muted)' }}>The run status waffle view is under development and will be available soon.</p>
-                </div>
-              </div>
-            </>
-          )}
 
+        {/* Enhanced Main Content Area */}
+        <motion.div 
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.6 }}
+          className="p-0 rounded-2xl shadow-card border overflow-hidden backdrop-blur-md" 
+          style={{ 
+            backgroundColor: 'var(--color-surface)', 
+            borderColor: 'var(--color-border)',
+            boxShadow: '0 25px 50px -12px var(--color-shadow)',
+          }}
+        >
           {viewMode === 'simple-flow' && (
             <>
-              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4">
+              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-8 py-6">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-white flex items-center">
-                    <ShareIcon className="h-5 w-5 mr-2" />
+                  <motion.h3 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="text-xl font-bold text-white flex items-center"
+                  >
+                    <ShareIcon className="h-6 w-6 mr-3" />
                     Simple Flow View
-                  </h3>
-                  <div className="flex items-center space-x-3">
+                  </motion.h3>
+                  <div className="flex items-center space-x-4">
                     {dbConnection && (
-                      <div className="flex items-center text-white text-sm">
-                        <CircleStackIcon className="w-4 h-4 mr-1" />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
                         Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
-                      </div>
+                      </motion.div>
                     )}
                     {dbConnection && (
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={handleDatabaseDisconnect}
-                        className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-300 font-medium"
                       >
                         Disconnect
                       </motion.button>
@@ -786,118 +688,175 @@ export default function RunStatus() {
               </div>
 
               {!dbConnection ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
-                      backgroundColor: 'var(--color-primary-10)',
-                      color: 'var(--color-primary)'
-                    }}>
-                      <CircleStackIcon className="w-10 h-10" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
-                    <p className="mb-6" style={{ color: 'var(--color-text-muted)' }}>
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ 
+                        rotate: [0, 360],
+                        scale: [1, 1.1, 1]
+                      }}
+                      transition={{ 
+                        rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+                        scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+                      }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-primary-10)',
+                        color: 'var(--color-primary)'
+                      }}
+                    >
+                      <CircleStackIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
                       Connect to your PostgreSQL database to analyze data and generate simple flow visualizations.
                     </p>
                     <motion.button
-                      whileHover={{ scale: 1.05 }}
+                      whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setShowDbModal(true)}
-                      className="px-6 py-3 rounded-lg font-medium transition-all"
+                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
                       style={{
-                        backgroundColor: 'var(--color-primary)',
-                        color: 'white'
+                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                        color: 'white',
+                        boxShadow: '0 8px 25px var(--color-primary-30)'
                       }}
                     >
                       Connect Database
                     </motion.button>
-                  </div>
+                  </motion.div>
                 </div>
               ) : !isConnected ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
-                      backgroundColor: 'var(--color-warning-10)',
-                      color: 'var(--color-warning)'
-                    }}>
-                      <ArrowPathIcon className="w-10 h-10 animate-spin" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Connecting...</h3>
-                    <p style={{ color: 'var(--color-text-muted)' }}>
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-warning-10)',
+                        color: 'var(--color-warning)'
+                      }}
+                    >
+                      <ArrowPathIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting...</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
                       Establishing connection to the database...
                     </p>
-                  </div>
+                  </motion.div>
                 </div>
               ) : dbFiles.length === 0 ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8" style={{
                       backgroundColor: 'var(--color-info-10)',
                       color: 'var(--color-info)'
                     }}>
-                      <TableCellsIcon className="w-10 h-10" />
+                      <TableCellsIcon className="w-12 h-12" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>No Tables Found</h3>
-                    <p style={{ color: 'var(--color-text-muted)' }}>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>No Tables Found</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
                       No tables were found in the connected database.
                     </p>
-                  </div>
+                  </motion.div>
                 </div>
               ) : !simpleFlowData ? (
-                <div className="p-6">
-                  <h4 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
+                <div className="p-8">
+                  <motion.h4 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-xl font-bold mb-6" 
+                    style={{ color: 'var(--color-text)' }}
+                  >
                     Select a table to analyze:
-                  </h4>
-                  <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                  </motion.h4>
+                  <motion.p 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="text-base mb-6" 
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
                     Choose any table from your database. The system will analyze the first row and create a simple flow visualization.
-                  </p>
+                  </motion.p>
                   {dbError && (
-                    <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}>
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="mb-6 p-4 rounded-xl" 
+                      style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
+                    >
                       {dbError}
-                    </div>
+                    </motion.div>
                   )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {dbFiles.map((file) => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {dbFiles.map((file, index) => (
                       <motion.div
                         key={file.id}
-                        whileHover={{ scale: 1.02 }}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        className="p-4 rounded-lg border cursor-pointer transition-all"
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300"
                         style={{
                           backgroundColor: 'var(--color-surface)',
                           borderColor: 'var(--color-border)',
-                          boxShadow: '0 2px 4px var(--color-shadow)'
+                          boxShadow: '0 4px 15px var(--color-shadow)'
                         }}
                         onClick={() => handleSimpleAnalyze(file)}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
                             {file.table_name}
                           </h5>
-                          <TableCellsIcon className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
+                          <TableCellsIcon className="w-6 h-6" style={{ color: 'var(--color-primary)' }} />
                         </div>
-                        <p className="text-sm mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
                           {file.file_type}
                         </p>
-                        <div className="flex justify-between items-center text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
                           <span>Schema: {file.schema_name || 'public'}</span>
                           <span>Rows: {file.row_count || 'Unknown'}</span>
                         </div>
                         {isSimpleAnalyzing && (
-                          <div className="mt-2 flex items-center justify-center">
-                            <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" style={{ color: 'var(--color-primary)' }} />
-                            <span className="text-sm" style={{ color: 'var(--color-primary)' }}>Analyzing...</span>
-                          </div>
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 flex items-center justify-center"
+                          >
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <ArrowPathIcon className="w-5 h-5 mr-2" style={{ color: 'var(--color-primary)' }} />
+                            </motion.div>
+                            <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>Analyzing...</span>
+                          </motion.div>
                         )}
                       </motion.div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="p-6">
+                <div className="p-8">
                   <SimpleFlowVisualization 
                     flowData={simpleFlowData.flow_data}
                     onAnalyze={() => {
-                      // Reset and show table selection again
                       setSimpleFlowData(null);
                       setSelectedFile(null);
                     }}
@@ -911,25 +870,35 @@ export default function RunStatus() {
           {/* Branch Flow View */}
           {viewMode === 'branch-flow' && (
             <>
-              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-6 py-4">
+              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-8 py-6">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-white flex items-center">
-                    <CircleStackIcon className="h-5 w-5 mr-2" />
+                  <motion.h3 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="text-xl font-bold text-white flex items-center"
+                  >
+                    <CircleStackIcon className="h-6 w-6 mr-3" />
                     Branch Flow View
-                  </h3>
-                  <div className="flex items-center space-x-3">
+                  </motion.h3>
+                  <div className="flex items-center space-x-4">
                     {dbConnection && (
-                      <div className="flex items-center text-white text-sm">
-                        <CircleStackIcon className="w-4 h-4 mr-1" />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
                         Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
-                      </div>
+                      </motion.div>
                     )}
                     {dbConnection && (
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={handleDatabaseDisconnect}
-                        className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-300 font-medium"
                       >
                         Disconnect
                       </motion.button>
@@ -939,114 +908,172 @@ export default function RunStatus() {
               </div>
 
               {!dbConnection ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
-                      backgroundColor: 'var(--color-primary-10)',
-                      color: 'var(--color-primary)'
-                    }}>
-                      <CircleStackIcon className="w-10 h-10" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
-                    <p className="mb-6" style={{ color: 'var(--color-text-muted)' }}>
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ 
+                        rotate: [0, 360],
+                        scale: [1, 1.1, 1]
+                      }}
+                      transition={{ 
+                        rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+                        scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+                      }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-primary-10)',
+                        color: 'var(--color-primary)'
+                      }}
+                    >
+                      <CircleStackIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
                       Connect to your PostgreSQL database to analyze branching patterns and generate intelligent flow visualizations.
                     </p>
                     <motion.button
-                      whileHover={{ scale: 1.05 }}
+                      whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setShowDbModal(true)}
-                      className="px-6 py-3 rounded-lg font-medium transition-all"
+                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
                       style={{
-                        backgroundColor: 'var(--color-primary)',
-                        color: 'white'
+                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                        color: 'white',
+                        boxShadow: '0 8px 25px var(--color-primary-30)'
                       }}
                     >
                       Connect Database
                     </motion.button>
-                  </div>
+                  </motion.div>
                 </div>
               ) : !isConnected ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
-                      backgroundColor: 'var(--color-warning-10)',
-                      color: 'var(--color-warning)'
-                    }}>
-                      <ArrowPathIcon className="w-10 h-10 animate-spin" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Connecting...</h3>
-                    <p style={{ color: 'var(--color-text-muted)' }}>
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-warning-10)',
+                        color: 'var(--color-warning)'
+                      }}
+                    >
+                      <ArrowPathIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting...</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
                       Establishing connection to the database...
                     </p>
-                  </div>
+                  </motion.div>
                 </div>
               ) : dbFiles.length === 0 ? (
-                <div className="text-center py-16">
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8" style={{
                       backgroundColor: 'var(--color-info-10)',
                       color: 'var(--color-info)'
                     }}>
-                      <TableCellsIcon className="w-10 h-10" />
+                      <TableCellsIcon className="w-12 h-12" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>No Tables Found</h3>
-                    <p style={{ color: 'var(--color-text-muted)' }}>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>No Tables Found</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
                       No tables were found in the connected database.
                     </p>
-                  </div>
+                  </motion.div>
                 </div>
               ) : !branchFlowData ? (
-                <div className="p-6">
-                  <h4 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
+                <div className="p-8">
+                  <motion.h4 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-xl font-bold mb-6" 
+                    style={{ color: 'var(--color-text)' }}
+                  >
                     Select a table to analyze for branching patterns:
-                  </h4>
-                  <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                  </motion.h4>
+                  <motion.p 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="text-base mb-6" 
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
                     Choose a table with run data. The system will automatically detect when stages are copied from previous runs and create intelligent branching visualizations with curved connections.
-                  </p>
+                  </motion.p>
                   {dbError && (
-                    <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}>
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="mb-6 p-4 rounded-xl" 
+                      style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
+                    >
                       {dbError}
-                    </div>
+                    </motion.div>
                   )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {dbFiles.map((file) => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {dbFiles.map((file, index) => (
                       <motion.div
                         key={file.id}
-                        whileHover={{ scale: 1.02 }}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        className="p-4 rounded-lg border cursor-pointer transition-all"
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300"
                         style={{
                           backgroundColor: 'var(--color-surface)',
                           borderColor: 'var(--color-border)',
-                          boxShadow: '0 2px 4px var(--color-shadow)'
+                          boxShadow: '0 4px 15px var(--color-shadow)'
                         }}
                         onClick={() => handleBranchAnalyze(file)}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
                             {file.table_name}
                           </h5>
-                          <CircleStackIcon className="w-5 h-5" style={{ color: '#FFD700' }} />
+                          <CircleStackIcon className="w-6 h-6" style={{ color: '#FFD700' }} />
                         </div>
-                        <p className="text-sm mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
                           {file.file_type} • Branch Analysis
                         </p>
-                        <div className="flex justify-between items-center text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
                           <span>Schema: {file.schema_name || 'public'}</span>
                           <span>Rows: {file.row_count || 'Unknown'}</span>
                         </div>
                         {isBranchAnalyzing && (
-                          <div className="mt-2 flex items-center justify-center">
-                            <ArrowPathIcon className="w-4 h-4 animate-spin mr-2" style={{ color: '#FFD700' }} />
-                            <span className="text-sm" style={{ color: '#FFD700' }}>Analyzing branches...</span>
-                          </div>
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 flex items-center justify-center"
+                          >
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <ArrowPathIcon className="w-5 h-5 mr-2" style={{ color: '#FFD700' }} />
+                            </motion.div>
+                            <span className="text-sm font-medium" style={{ color: '#FFD700' }}>Analyzing branches...</span>
+                          </motion.div>
                         )}
                       </motion.div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="p-6">
+                <div className="p-8">
                   <BranchFlowVisualization 
                     data={branchFlowData.branch_data}
                   />
@@ -1058,7 +1085,7 @@ export default function RunStatus() {
                         setBranchFlowData(null);
                         setSelectedFile(null);
                       }}
-                      className="px-6 py-2 rounded-lg font-medium transition-all"
+                      className="px-6 py-2 rounded-lg font-medium transition-all duration-300"
                       style={{
                         backgroundColor: 'var(--color-surface)',
                         color: 'var(--color-text)',
@@ -1073,9 +1100,239 @@ export default function RunStatus() {
             </>
           )}
 
+          {/* RTL Flow View */}
+          {viewMode === 'rtl-flow' && (
+            <>
+              <div className="bg-gradient-to-r from-[var(--color-primary-dark)] to-[var(--color-primary)] px-8 py-6">
+                <div className="flex items-center justify-between">
+                  <motion.h3 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="text-xl font-bold text-white flex items-center"
+                  >
+                    <CpuChipIcon className="h-6 w-6 mr-3" />
+                    RTL View
+                  </motion.h3>
+                  <div className="flex items-center space-x-4">
+                    {dbConnection && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
+                        Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                      </motion.div>
+                    )}
+                    {dbConnection && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleDatabaseDisconnect}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-all duration-300 font-medium"
+                      >
+                        Disconnect
+                      </motion.button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
+              {!dbConnection ? (
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ 
+                        rotate: [0, 360],
+                        scale: [1, 1.1, 1]
+                      }}
+                      transition={{ 
+                        rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+                        scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+                      }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-primary-10)',
+                        color: 'var(--color-primary)'
+                      }}
+                    >
+                      <CpuChipIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
+                      Connect to your PostgreSQL database to analyze RTL version patterns and generate version-specific branching visualizations.
+                    </p>
+                    <motion.button
+                      whileHover={{ scale: 1.05, y: -2 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowDbModal(true)}
+                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
+                      style={{
+                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                        color: 'white',
+                        boxShadow: '0 8px 25px var(--color-primary-30)'
+                      }}
+                    >
+                      Connect Database
+                    </motion.button>
+                  </motion.div>
+                </div>
+              ) : !isConnected ? (
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                      className="w-24 h-24 rounded-full flex items-center justify-center mb-8" 
+                      style={{
+                        backgroundColor: 'var(--color-warning-10)',
+                        color: 'var(--color-warning)'
+                      }}
+                    >
+                      <ArrowPathIcon className="w-12 h-12" />
+                    </motion.div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting...</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
+                      Establishing connection to the database...
+                    </p>
+                  </motion.div>
+                </div>
+              ) : availableRtlFiles.length === 0 ? (
+                <div className="text-center py-20">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center justify-center"
+                  >
+                    <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8" style={{
+                      backgroundColor: 'var(--color-info-10)',
+                      color: 'var(--color-info)'
+                    }}>
+                      <TableCellsIcon className="w-12 h-12" />
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>No RTL Tables Found</h3>
+                    <p className="text-lg" style={{ color: 'var(--color-text-muted)' }}>
+                      No tables with an RTL_version column were found in the connected database.
+                    </p>
+                  </motion.div>
+                </div>
+              ) : !rtlFlowData ? (
+                <div className="p-8">
+                  <motion.h4 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-xl font-bold mb-6" 
+                    style={{ color: 'var(--color-text)' }}
+                  >
+                    Select a table to analyze for RTL version patterns:
+                  </motion.h4>
+                  <motion.p 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="text-base mb-6" 
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    Choose a table with RTL_version column. The system will automatically detect RTL versions and create version-specific branching visualizations.
+                  </motion.p>
+                  {dbError && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="mb-6 p-4 rounded-xl" 
+                      style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
+                    >
+                      {dbError}
+                    </motion.div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {availableRtlFiles.map((file, index) => (
+                      <motion.div
+                        key={file.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: 'var(--color-border)',
+                          boxShadow: '0 4px 15px var(--color-shadow)'
+                        }}
+                        onClick={() => handleRtlAnalyze(file)}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {file.table_name}
+                          </h5>
+                          <CpuChipIcon className="w-6 h-6" style={{ color: '#667eea' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          {file.file_type} • RTL Analysis
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Schema: {file.schema_name || 'public'}</span>
+                          <span>Rows: {file.row_count || 'Unknown'}</span>
+                        </div>
+                        {isRtlAnalyzing && (
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 flex items-center justify-center"
+                          >
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <ArrowPathIcon className="w-5 h-5 mr-2" style={{ color: '#667eea' }} />
+                            </motion.div>
+                            <span className="text-sm font-medium" style={{ color: '#667eea' }}>Analyzing RTL versions...</span>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8">
+                  <RTLFlowVisualization 
+                    data={rtlFlowData.rtl_data}
+                  />
+                  <div className="mt-4 flex justify-center">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        setRtlFlowData(null);
+                        setSelectedFile(null);
+                      }}
+                      className="px-6 py-2 rounded-lg font-medium transition-all duration-300"
+                      style={{
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text)',
+                        border: '1px solid var(--color-border)'
+                      }}
+                    >
+                      Analyze Another Table
+                    </motion.button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </motion.div>
-      )}
       </div>
 
       {/* Database Connection Modal */}
@@ -1087,4 +1344,4 @@ export default function RunStatus() {
       />
     </div>
   );
-} 
+}
