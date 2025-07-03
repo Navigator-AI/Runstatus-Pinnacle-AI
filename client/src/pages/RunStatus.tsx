@@ -17,6 +17,7 @@ import { motion } from 'framer-motion';
 import runService from '../services/runService';
 import userService from '../services/userService';
 import flowtrackService, { DatabaseConnection, DatabaseFile, SimpleFlowAnalysisResult, BranchFlowAnalysisResult, RTLFlowAnalysisResult } from '../services/flowtrackService';
+import runStatusDbService, { RunStatusTable, RunStatusDbStatus, SimpleFlowAnalysisResult as RunStatusSimpleFlowResult, BranchFlowAnalysisResult as RunStatusBranchFlowResult, RTLFlowAnalysisResult as RunStatusRTLFlowResult } from '../services/runStatusDbService';
 import DatabaseConnectionModal from '../components/DatabaseConnectionModal';
 import SimpleFlowVisualization from '../components/SimpleFlowVisualization';
 import BranchFlowVisualization from '../components/BranchFlowVisualization';
@@ -68,7 +69,7 @@ export default function RunStatus() {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'simple-flow' | 'branch-flow' | 'rtl-flow'>('simple-flow');
   
-  // Database connection state
+  // Database connection state (legacy - for manual connections)
   const [showDbModal, setShowDbModal] = useState(false);
   const [dbConnection, setDbConnection] = useState<DatabaseConnection | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -76,6 +77,14 @@ export default function RunStatus() {
   const [selectedFile, setSelectedFile] = useState<DatabaseFile | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  
+  // Automated Run Status database state
+  const [runStatusTables, setRunStatusTables] = useState<RunStatusTable[]>([]);
+  const [runStatusDbStatus, setRunStatusDbStatus] = useState<RunStatusDbStatus | null>(null);
+  const [isRunStatusConnected, setIsRunStatusConnected] = useState(false);
+  const [runStatusError, setRunStatusError] = useState<string | null>(null);
+  const [selectedRunStatusTable, setSelectedRunStatusTable] = useState<RunStatusTable | null>(null);
+  const [isRefreshingTables, setIsRefreshingTables] = useState(false);
   
   // Simple Flow related state
   const [simpleFlowData, setSimpleFlowData] = useState<SimpleFlowAnalysisResult | null>(null);
@@ -105,6 +114,38 @@ export default function RunStatus() {
     
     fetchUsers();
   }, [isAdmin]);
+
+  // Fetch Run Status database status and tables
+  useEffect(() => {
+    const fetchRunStatusDb = async () => {
+      try {
+        console.log('Fetching Run Status database status...');
+        const status = await runStatusDbService.getStatus();
+        setRunStatusDbStatus(status);
+        setIsRunStatusConnected(status.connection.isConnected);
+        setRunStatusTables(status.tables);
+        setRunStatusError(null);
+        
+        if (status.connection.isConnected) {
+          console.log(`Connected to Run Status database with ${status.totalTables} tables`);
+        } else {
+          console.log('Run Status database not connected');
+        }
+      } catch (error: any) {
+        console.error('Error fetching Run Status database status:', error);
+        setRunStatusError(error.response?.data?.details || error.message || 'Failed to connect to Run Status database');
+        setIsRunStatusConnected(false);
+        setRunStatusTables([]);
+      }
+    };
+
+    fetchRunStatusDb();
+
+    // Set up polling to refresh tables every 30 seconds
+    const interval = setInterval(fetchRunStatusDb, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch runs data
   useEffect(() => {
@@ -300,9 +341,91 @@ export default function RunStatus() {
   const handleViewModeChange = (mode: 'simple-flow' | 'branch-flow' | 'rtl-flow') => {
     setViewMode(mode);
     
-    // If switching to flow modes and no connection exists, show modal
-    if (!dbConnection) {
+    // Clear previous analysis data when switching modes
+    setSimpleFlowData(null);
+    setBranchFlowData(null);
+    setRtlFlowData(null);
+    setSelectedRunStatusTable(null);
+    
+    // If switching to flow modes and no automated connection exists, show modal for manual connection
+    if (!isRunStatusConnected && !dbConnection) {
       setShowDbModal(true);
+    }
+  };
+
+  // Handle automated database table analysis
+  const handleRunStatusSimpleAnalyze = async (table: RunStatusTable) => {
+    setIsSimpleAnalyzing(true);
+    setRunStatusError(null);
+    
+    try {
+      console.log('Starting automated simple analysis for table:', table.table_name);
+      const analysisResult = await runStatusDbService.analyzeSimple(table.table_name);
+      
+      console.log('Simple Flow Analysis Result:', analysisResult);
+      console.log('Flow Data Structure:', analysisResult.flow_data);
+      
+      setSimpleFlowData(analysisResult as any); // Type compatibility
+      setSelectedRunStatusTable(table);
+    } catch (error: any) {
+      console.error('Automated simple analysis error:', error);
+      setRunStatusError(error.response?.data?.details || error.message || 'Simple analysis failed');
+    } finally {
+      setIsSimpleAnalyzing(false);
+    }
+  };
+
+  const handleRunStatusBranchAnalyze = async (table: RunStatusTable) => {
+    setIsBranchAnalyzing(true);
+    setRunStatusError(null);
+    
+    try {
+      console.log('Starting automated branch analysis for table:', table.table_name);
+      const analysisResult = await runStatusDbService.analyzeBranch(table.table_name);
+      
+      setBranchFlowData(analysisResult as any); // Type compatibility
+      setSelectedRunStatusTable(table);
+    } catch (error: any) {
+      console.error('Automated branch analysis error:', error);
+      setRunStatusError(error.response?.data?.details || error.message || 'Branch analysis failed');
+    } finally {
+      setIsBranchAnalyzing(false);
+    }
+  };
+
+  const handleRunStatusRtlAnalyze = async (table: RunStatusTable) => {
+    setIsRtlAnalyzing(true);
+    setRunStatusError(null);
+    
+    try {
+      console.log('Starting automated RTL analysis for table:', table.table_name);
+      const analysisResult = await runStatusDbService.analyzeRTL(table.table_name);
+      
+      setRtlFlowData(analysisResult as any); // Type compatibility
+      setSelectedRunStatusTable(table);
+    } catch (error: any) {
+      console.error('Automated RTL analysis error:', error);
+      setRunStatusError(error.response?.data?.details || error.message || 'RTL analysis failed');
+    } finally {
+      setIsRtlAnalyzing(false);
+    }
+  };
+
+  // Handle manual refresh of automated database tables
+  const handleRefreshRunStatusTables = async () => {
+    setIsRefreshingTables(true);
+    setRunStatusError(null);
+    
+    try {
+      console.log('Manually refreshing Run Status database tables...');
+      const result = await runStatusDbService.refreshTables();
+      setRunStatusTables(result.tables);
+      console.log(`Refreshed ${result.totalTables} tables`);
+    } catch (error: any) {
+      console.error('Error refreshing tables:', error);
+      setRunStatusError(error.response?.data?.details || error.message || 'Failed to refresh tables');
+    } finally {
+      setIsRefreshingTables(false);
     }
   };
 
@@ -320,6 +443,18 @@ export default function RunStatus() {
       setAvailableRtlFiles([]);
     }
   }, [viewMode, dbFiles]);
+
+  // Get RTL-compatible tables from automated database
+  const getAvailableRtlTables = () => {
+    if (viewMode === 'rtl-flow' && runStatusTables.length > 0) {
+      return runStatusTables.filter(table =>
+        Array.isArray(table.columns) && table.columns.some(col => 
+          col.toLowerCase().replace('_', '').replace(' ', '') === 'rtlversion'
+        )
+      );
+    }
+    return [];
+  };
 
   return (
     <div
@@ -662,7 +797,7 @@ export default function RunStatus() {
                     Simple Flow View
                   </motion.h3>
                   <div className="flex items-center space-x-4">
-                    {dbConnection && (
+                    {isRunStatusConnected && runStatusDbStatus && (
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -670,10 +805,32 @@ export default function RunStatus() {
                         className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
                       >
                         <CircleStackIcon className="w-4 h-4 mr-2" />
-                        Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                        Auto-Connected to {runStatusDbStatus.connection.host}:{runStatusDbStatus.connection.port}/{runStatusDbStatus.connection.database}
                       </motion.div>
                     )}
-                    {dbConnection && (
+                    {isRunStatusConnected && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleRefreshRunStatusTables}
+                        disabled={isRefreshingTables}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-all duration-300 font-medium disabled:opacity-50"
+                      >
+                        {isRefreshingTables ? 'Refreshing...' : 'Refresh Tables'}
+                      </motion.button>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
+                        Manual: {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                      </motion.div>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
@@ -687,7 +844,7 @@ export default function RunStatus() {
                 </div>
               </div>
 
-              {!dbConnection ? (
+              {!isRunStatusConnected && !dbConnection ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
@@ -712,26 +869,36 @@ export default function RunStatus() {
                     >
                       <CircleStackIcon className="w-12 h-12" />
                     </motion.div>
-                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting to Run Status Database</h3>
                     <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
-                      Connect to your PostgreSQL database to analyze data and generate simple flow visualizations.
+                      {runStatusError ? (
+                        <>
+                          <span className="text-red-500">Connection failed: {runStatusError}</span>
+                          <br />
+                          <span className="text-sm">You can manually connect to a database as fallback.</span>
+                        </>
+                      ) : (
+                        'Automatically connecting to the Run Status database to fetch tables and analyze data.'
+                      )}
                     </p>
-                    <motion.button
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowDbModal(true)}
-                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
-                      style={{
-                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                        color: 'white',
-                        boxShadow: '0 8px 25px var(--color-primary-30)'
-                      }}
-                    >
-                      Connect Database
-                    </motion.button>
+                    {runStatusError && (
+                      <motion.button
+                        whileHover={{ scale: 1.05, y: -2 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowDbModal(true)}
+                        className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                          color: 'white',
+                          boxShadow: '0 8px 25px var(--color-primary-30)'
+                        }}
+                      >
+                        Manual Database Connection
+                      </motion.button>
+                    )}
                   </motion.div>
                 </div>
-              ) : !isConnected ? (
+              ) : (!isRunStatusConnected && !isConnected) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0 }}
@@ -755,7 +922,7 @@ export default function RunStatus() {
                     </p>
                   </motion.div>
                 </div>
-              ) : dbFiles.length === 0 ? (
+              ) : (isRunStatusConnected && runStatusTables.length === 0) || (!isRunStatusConnected && dbFiles.length === 0) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -791,20 +958,76 @@ export default function RunStatus() {
                     className="text-base mb-6" 
                     style={{ color: 'var(--color-text-muted)' }}
                   >
-                    Choose any table from your database. The system will analyze the first row and create a simple flow visualization.
+                    {isRunStatusConnected 
+                      ? 'Choose any table from the Run Status database. The system will analyze the data and create a simple flow visualization.'
+                      : 'Choose any table from your database. The system will analyze the first row and create a simple flow visualization.'
+                    }
                   </motion.p>
-                  {dbError && (
+                  {(dbError || runStatusError) && (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       className="mb-6 p-4 rounded-xl" 
                       style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
                     >
-                      {dbError}
+                      {runStatusError || dbError}
                     </motion.div>
                   )}
+                  
+                  {/* Show automated database tables first, then manual ones */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {dbFiles.map((file, index) => (
+                    {/* Automated Run Status Database Tables */}
+                    {isRunStatusConnected && runStatusTables.map((table, index) => (
+                      <motion.div
+                        key={`runstatus-${table.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300 relative"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: 'var(--color-primary)',
+                          borderWidth: '2px',
+                          boxShadow: '0 4px 15px var(--color-primary-20)'
+                        }}
+                        onClick={() => handleRunStatusSimpleAnalyze(table)}
+                      >
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 text-xs rounded-full" style={{
+                            backgroundColor: 'var(--color-primary-10)',
+                            color: 'var(--color-primary)'
+                          }}>
+                            Auto
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {table.table_name}
+                          </h5>
+                          <TableCellsIcon className="w-6 h-6" style={{ color: 'var(--color-primary)' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          {table.file_type}
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Schema: {table.schema_name || 'public'}</span>
+                          <span>Rows: {table.row_count || 'Unknown'}</span>
+                        </div>
+                        {isSimpleAnalyzing && selectedRunStatusTable?.id === table.id && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded-xl">
+                            <div className="flex items-center text-white">
+                              <ArrowPathIcon className="w-5 h-5 mr-2 animate-spin" />
+                              Analyzing...
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                    
+                    {/* Manual Database Tables */}
+                    {!isRunStatusConnected && dbFiles.map((file, index) => (
                       <motion.div
                         key={file.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -858,7 +1081,7 @@ export default function RunStatus() {
                     flowData={simpleFlowData.flow_data}
                     onAnalyze={() => {
                       setSimpleFlowData(null);
-                      setSelectedFile(null);
+                      setSelectedRunStatusTable(null);
                     }}
                     isLoading={isSimpleAnalyzing}
                   />
@@ -882,7 +1105,7 @@ export default function RunStatus() {
                     Branch Flow View
                   </motion.h3>
                   <div className="flex items-center space-x-4">
-                    {dbConnection && (
+                    {isRunStatusConnected && runStatusDbStatus && (
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -890,10 +1113,32 @@ export default function RunStatus() {
                         className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
                       >
                         <CircleStackIcon className="w-4 h-4 mr-2" />
-                        Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                        Auto-Connected to {runStatusDbStatus.connection.host}:{runStatusDbStatus.connection.port}/{runStatusDbStatus.connection.database}
                       </motion.div>
                     )}
-                    {dbConnection && (
+                    {isRunStatusConnected && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleRefreshRunStatusTables}
+                        disabled={isRefreshingTables}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-all duration-300 font-medium disabled:opacity-50"
+                      >
+                        {isRefreshingTables ? 'Refreshing...' : 'Refresh Tables'}
+                      </motion.button>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
+                        Manual: {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                      </motion.div>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
@@ -907,7 +1152,7 @@ export default function RunStatus() {
                 </div>
               </div>
 
-              {!dbConnection ? (
+              {!isRunStatusConnected && !dbConnection ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
@@ -932,26 +1177,36 @@ export default function RunStatus() {
                     >
                       <CircleStackIcon className="w-12 h-12" />
                     </motion.div>
-                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting to Run Status Database</h3>
                     <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
-                      Connect to your PostgreSQL database to analyze branching patterns and generate intelligent flow visualizations.
+                      {runStatusError ? (
+                        <>
+                          <span className="text-red-500">Connection failed: {runStatusError}</span>
+                          <br />
+                          <span className="text-sm">You can manually connect to a database as fallback.</span>
+                        </>
+                      ) : (
+                        'Automatically connecting to the Run Status database to analyze branching patterns and generate intelligent flow visualizations.'
+                      )}
                     </p>
-                    <motion.button
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowDbModal(true)}
-                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
-                      style={{
-                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                        color: 'white',
-                        boxShadow: '0 8px 25px var(--color-primary-30)'
-                      }}
-                    >
-                      Connect Database
-                    </motion.button>
+                    {runStatusError && (
+                      <motion.button
+                        whileHover={{ scale: 1.05, y: -2 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowDbModal(true)}
+                        className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                          color: 'white',
+                          boxShadow: '0 8px 25px var(--color-primary-30)'
+                        }}
+                      >
+                        Manual Database Connection
+                      </motion.button>
+                    )}
                   </motion.div>
                 </div>
-              ) : !isConnected ? (
+              ) : (!isRunStatusConnected && !isConnected) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0 }}
@@ -975,7 +1230,7 @@ export default function RunStatus() {
                     </p>
                   </motion.div>
                 </div>
-              ) : dbFiles.length === 0 ? (
+              ) : (isRunStatusConnected && runStatusTables.length === 0) || (!isRunStatusConnected && dbFiles.length === 0) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -1011,20 +1266,83 @@ export default function RunStatus() {
                     className="text-base mb-6" 
                     style={{ color: 'var(--color-text-muted)' }}
                   >
-                    Choose a table with run data. The system will automatically detect when stages are copied from previous runs and create intelligent branching visualizations with curved connections.
+                    {isRunStatusConnected 
+                      ? 'Choose a table with run data from the Run Status database. The system will automatically detect when stages are copied from previous runs and create intelligent branching visualizations with curved connections.'
+                      : 'Choose a table with run data. The system will automatically detect when stages are copied from previous runs and create intelligent branching visualizations with curved connections.'
+                    }
                   </motion.p>
-                  {dbError && (
+                  {(dbError || runStatusError) && (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       className="mb-6 p-4 rounded-xl" 
                       style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
                     >
-                      {dbError}
+                      {runStatusError || dbError}
                     </motion.div>
                   )}
+                  
+                  {/* Show automated database tables first, then manual ones */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {dbFiles.map((file, index) => (
+                    {/* Automated Run Status Database Tables */}
+                    {isRunStatusConnected && runStatusTables.map((table, index) => (
+                      <motion.div
+                        key={`runstatus-branch-${table.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300 relative"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: '#FFD700',
+                          borderWidth: '2px',
+                          boxShadow: '0 4px 15px rgba(255, 215, 0, 0.2)'
+                        }}
+                        onClick={() => handleRunStatusBranchAnalyze(table)}
+                      >
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 text-xs rounded-full" style={{
+                            backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                            color: '#FFD700'
+                          }}>
+                            Auto
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {table.table_name}
+                          </h5>
+                          <CircleStackIcon className="w-6 h-6" style={{ color: '#FFD700' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          {table.file_type} • Branch Analysis
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Schema: {table.schema_name || 'public'}</span>
+                          <span>Rows: {table.row_count || 'Unknown'}</span>
+                        </div>
+                        {isBranchAnalyzing && selectedRunStatusTable?.id === table.id && (
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 flex items-center justify-center"
+                          >
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <ArrowPathIcon className="w-5 h-5 mr-2" style={{ color: '#FFD700' }} />
+                            </motion.div>
+                            <span className="text-sm font-medium" style={{ color: '#FFD700' }}>Analyzing branches...</span>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    ))}
+                    
+                    {/* Manual Database Tables */}
+                    {!isRunStatusConnected && dbFiles.map((file, index) => (
                       <motion.div
                         key={file.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -1115,7 +1433,7 @@ export default function RunStatus() {
                     RTL View
                   </motion.h3>
                   <div className="flex items-center space-x-4">
-                    {dbConnection && (
+                    {isRunStatusConnected && runStatusDbStatus && (
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -1123,10 +1441,32 @@ export default function RunStatus() {
                         className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
                       >
                         <CircleStackIcon className="w-4 h-4 mr-2" />
-                        Connected to {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                        Auto-Connected to {runStatusDbStatus.connection.host}:{runStatusDbStatus.connection.port}/{runStatusDbStatus.connection.database}
                       </motion.div>
                     )}
-                    {dbConnection && (
+                    {isRunStatusConnected && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleRefreshRunStatusTables}
+                        disabled={isRefreshingTables}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-all duration-300 font-medium disabled:opacity-50"
+                      >
+                        {isRefreshingTables ? 'Refreshing...' : 'Refresh Tables'}
+                      </motion.button>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="flex items-center text-white text-sm bg-white/20 px-3 py-1 rounded-lg backdrop-blur-sm"
+                      >
+                        <CircleStackIcon className="w-4 h-4 mr-2" />
+                        Manual: {dbConnection.host}:{dbConnection.port}/{dbConnection.database}
+                      </motion.div>
+                    )}
+                    {!isRunStatusConnected && dbConnection && (
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
@@ -1140,7 +1480,7 @@ export default function RunStatus() {
                 </div>
               </div>
 
-              {!dbConnection ? (
+              {!isRunStatusConnected && !dbConnection ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
@@ -1165,26 +1505,36 @@ export default function RunStatus() {
                     >
                       <CpuChipIcon className="w-12 h-12" />
                     </motion.div>
-                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connect to Database</h3>
+                    <h3 className="text-2xl font-bold mb-3" style={{ color: 'var(--color-text)' }}>Connecting to Run Status Database</h3>
                     <p className="mb-8 text-lg max-w-md" style={{ color: 'var(--color-text-muted)' }}>
-                      Connect to your PostgreSQL database to analyze RTL version patterns and generate version-specific branching visualizations.
+                      {runStatusError ? (
+                        <>
+                          <span className="text-red-500">Connection failed: {runStatusError}</span>
+                          <br />
+                          <span className="text-sm">You can manually connect to a database as fallback.</span>
+                        </>
+                      ) : (
+                        'Automatically connecting to the Run Status database to analyze RTL version patterns and generate version-specific branching visualizations.'
+                      )}
                     </p>
-                    <motion.button
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowDbModal(true)}
-                      className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
-                      style={{
-                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                        color: 'white',
-                        boxShadow: '0 8px 25px var(--color-primary-30)'
-                      }}
-                    >
-                      Connect Database
-                    </motion.button>
+                    {runStatusError && (
+                      <motion.button
+                        whileHover={{ scale: 1.05, y: -2 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowDbModal(true)}
+                        className="px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                          color: 'white',
+                          boxShadow: '0 8px 25px var(--color-primary-30)'
+                        }}
+                      >
+                        Manual Database Connection
+                      </motion.button>
+                    )}
                   </motion.div>
                 </div>
-              ) : !isConnected ? (
+              ) : (!isRunStatusConnected && !isConnected) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0 }}
@@ -1208,7 +1558,7 @@ export default function RunStatus() {
                     </p>
                   </motion.div>
                 </div>
-              ) : availableRtlFiles.length === 0 ? (
+              ) : (isRunStatusConnected && getAvailableRtlTables().length === 0) || (!isRunStatusConnected && availableRtlFiles.length === 0) ? (
                 <div className="text-center py-20">
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -1244,20 +1594,83 @@ export default function RunStatus() {
                     className="text-base mb-6" 
                     style={{ color: 'var(--color-text-muted)' }}
                   >
-                    Choose a table with RTL_version column. The system will automatically detect RTL versions and create version-specific branching visualizations.
+                    {isRunStatusConnected 
+                      ? 'Choose a table with RTL_version column from the Run Status database. The system will automatically detect RTL versions and create version-specific branching visualizations.'
+                      : 'Choose a table with RTL_version column. The system will automatically detect RTL versions and create version-specific branching visualizations.'
+                    }
                   </motion.p>
-                  {dbError && (
+                  {(dbError || runStatusError) && (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       className="mb-6 p-4 rounded-xl" 
                       style={{ backgroundColor: 'var(--color-error-10)', color: 'var(--color-error)' }}
                     >
-                      {dbError}
+                      {runStatusError || dbError}
                     </motion.div>
                   )}
+                  
+                  {/* Show automated database tables first, then manual ones */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {availableRtlFiles.map((file, index) => (
+                    {/* Automated Run Status Database Tables with RTL_version */}
+                    {isRunStatusConnected && getAvailableRtlTables().map((table, index) => (
+                      <motion.div
+                        key={`runstatus-rtl-${table.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300 relative"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: 'var(--color-primary)',
+                          borderWidth: '2px',
+                          boxShadow: '0 4px 15px var(--color-primary-20)'
+                        }}
+                        onClick={() => handleRunStatusRtlAnalyze(table)}
+                      >
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 text-xs rounded-full" style={{
+                            backgroundColor: 'var(--color-primary-10)',
+                            color: 'var(--color-primary)'
+                          }}>
+                            Auto
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {table.table_name}
+                          </h5>
+                          <CpuChipIcon className="w-6 h-6" style={{ color: 'var(--color-primary)' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          {table.file_type} • RTL Analysis
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Schema: {table.schema_name || 'public'}</span>
+                          <span>Rows: {table.row_count || 'Unknown'}</span>
+                        </div>
+                        {isRtlAnalyzing && selectedRunStatusTable?.id === table.id && (
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 flex items-center justify-center"
+                          >
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <ArrowPathIcon className="w-5 h-5 mr-2" style={{ color: 'var(--color-primary)' }} />
+                            </motion.div>
+                            <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>Analyzing RTL versions...</span>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    ))}
+                    
+                    {/* Manual Database Tables with RTL_version */}
+                    {!isRunStatusConnected && availableRtlFiles.map((file, index) => (
                       <motion.div
                         key={file.id}
                         initial={{ opacity: 0, y: 20 }}

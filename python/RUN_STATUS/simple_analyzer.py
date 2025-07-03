@@ -107,7 +107,7 @@ def analyze_data_structure(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     
     try:
-        print("Attempting AI analysis with Mistral model...")
+        print("Attempting AI analysis with Mistral model...", file=sys.stderr)
         response = requests.post(OLLAMA_URL, json={
             "model": MODEL,
             "prompt": prompt,
@@ -116,13 +116,13 @@ def analyze_data_structure(data: List[Dict[str, Any]]) -> Dict[str, Any]:
         
         if response.status_code == 200:
             ai_response = response.json().get("response", "")
-            print("AI analysis successful, parsing response...")
+            print("AI analysis successful, parsing response...", file=sys.stderr)
             return parse_ai_response(ai_response)
         else:
-            print(f"AI request failed with status {response.status_code}, using fallback...")
+            print(f"AI request failed with status {response.status_code}, using fallback...", file=sys.stderr)
             return create_intelligent_fallback_analysis(data, columns)
     except Exception as e:
-        print(f"AI analysis failed: {e}, using intelligent fallback...")
+        print(f"AI analysis failed: {e}, using intelligent fallback...", file=sys.stderr)
         return create_intelligent_fallback_analysis(data, columns)
 
 def parse_ai_response(response: str) -> Dict[str, Any]:

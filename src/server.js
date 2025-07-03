@@ -26,6 +26,7 @@ const aiContextRoutes = require('./routes/aiContext');
 const contextAgentRoutes = require('./routes/contextAgent');
 const chat2sqlRoutes = require('./routes/chat2sql');
 const flowtrackRoutes = require('./routes/flowtrack');
+const runStatusDbRoutes = require('./routes/runStatusDb');
 const { setSessionStore } = require('./services/sessionService');
 
 // Try to require the documents routes, but don't fail if they're not available
@@ -151,6 +152,7 @@ async function startServer() {
     apiRouter.use('/context-agent', contextAgentRoutes);
     apiRouter.use('/chat2sql', chat2sqlRoutes);
     apiRouter.use('/flowtrack', flowtrackRoutes);
+    apiRouter.use('/runstatus-db', runStatusDbRoutes);
     apiRouter.use('/', configRoutes(config)); // Add config routes at the API root
 
     // Mount all API routes under /api
