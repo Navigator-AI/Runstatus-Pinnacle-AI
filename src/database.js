@@ -112,7 +112,10 @@ const db = {
       console.error('SQL execution error:', error);
       throw error;
     }
-  }
+  },
+
+  // Expose the pool for advanced operations
+  pool: pool
 };
 
 async function initializeDatabase() {

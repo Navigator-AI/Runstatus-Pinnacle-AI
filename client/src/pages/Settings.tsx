@@ -9,12 +9,14 @@ import {
   ServerIcon,
   CpuChipIcon,
   BugAntIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  CircleStackIcon
 } from '@heroicons/react/24/outline';
 import OllamaSettings from '../components/settings/OllamaSettings';
 import MCPSettings from '../components/settings/MCPSettings';
 import DebuggingSettings from '../components/settings/DebuggingSettings';
 import AIRulesSettings from '../components/settings/AIRulesSettings';
+import RunStatusDbSettings from '../components/settings/RunStatusDbSettings';
 
 // Import ThemeType from the ThemeContext
 type ThemeType = 'dark' | 'light' | 'midnight';
@@ -132,6 +134,7 @@ export default function Settings() {
     { id: 'ai_rules', name: 'AI Rules', icon: ChatBubbleLeftRightIcon },
     { id: 'ollama', name: 'LLM Integration', icon: ServerIcon },
     { id: 'mcp', name: 'MCP Integration', icon: CpuChipIcon },
+    { id: 'runstatus_db', name: 'RunStatus DB', icon: CircleStackIcon },
     { id: 'debugging', name: 'Debugging', icon: BugAntIcon },
   ];
 
@@ -488,6 +491,18 @@ export default function Settings() {
                 MCP Integration Settings
               </h2>
               <MCPSettings isAdmin={user?.role === 'admin'} />
+            </div>
+          )}
+
+          {activeTab === 'runstatus_db' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
+                RunStatus Database Settings
+              </h2>
+              <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+                Configure connection settings for the RunStatus database to enable data analysis and monitoring features.
+              </p>
+              <RunStatusDbSettings />
             </div>
           )}
 

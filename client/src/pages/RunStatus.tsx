@@ -86,6 +86,11 @@ export default function RunStatus() {
   const [selectedRunStatusTable, setSelectedRunStatusTable] = useState<RunStatusTable | null>(null);
   const [isRefreshingTables, setIsRefreshingTables] = useState(false);
   
+  // User-specific Run Status data
+  const [runStatusUsers, setRunStatusUsers] = useState<any[]>([]);
+  const [selectedRunStatusUser, setSelectedRunStatusUser] = useState<any | null>(null);
+  const [userSpecificTables, setUserSpecificTables] = useState<RunStatusTable[]>([]);
+  
   // Simple Flow related state
   const [simpleFlowData, setSimpleFlowData] = useState<SimpleFlowAnalysisResult | null>(null);
   const [isSimpleAnalyzing, setIsSimpleAnalyzing] = useState(false);
@@ -99,23 +104,27 @@ export default function RunStatus() {
   const [isRtlAnalyzing, setIsRtlAnalyzing] = useState(false);
   const [availableRtlFiles, setAvailableRtlFiles] = useState<DatabaseFile[]>([]);
 
-  // Fetch users if admin
+  // Fetch users if admin - but only show them if no database is connected
   useEffect(() => {
     const fetchUsers = async () => {
-      if (isAdmin()) {
+      if (isAdmin() && !isRunStatusConnected) {
         try {
           const fetchedUsers = await userService.getUsers();
           setUsers(fetchedUsers);
         } catch (error) {
           console.error('Error fetching users:', error);
         }
+      } else {
+        setUsers([]);
+        setSelectedUserId(null);
+        setSelectedUser(null);
       }
     };
     
     fetchUsers();
-  }, [isAdmin]);
+  }, [isAdmin, isRunStatusConnected]);
 
-  // Fetch Run Status database status and tables
+  // Fetch Run Status database status and users
   useEffect(() => {
     const fetchRunStatusDb = async () => {
       try {
@@ -128,14 +137,26 @@ export default function RunStatus() {
         
         if (status.connection.isConnected) {
           console.log(`Connected to Run Status database with ${status.totalTables} tables`);
+          
+          // Fetch users with data for UI display
+          try {
+            const usersData = await runStatusDbService.getUsersWithData();
+            setRunStatusUsers(usersData.users);
+            console.log(`Found ${usersData.users.length} users with data in Run Status database`);
+          } catch (userError: any) {
+            console.error('Error fetching users with data:', userError);
+            setRunStatusUsers([]);
+          }
         } else {
           console.log('Run Status database not connected');
+          setRunStatusUsers([]);
         }
       } catch (error: any) {
         console.error('Error fetching Run Status database status:', error);
         setRunStatusError(error.response?.data?.details || error.message || 'Failed to connect to Run Status database');
         setIsRunStatusConnected(false);
         setRunStatusTables([]);
+        setRunStatusUsers([]);
       }
     };
 
@@ -420,13 +441,35 @@ export default function RunStatus() {
       console.log('Manually refreshing Run Status database tables...');
       const result = await runStatusDbService.refreshTables();
       setRunStatusTables(result.tables);
-      console.log(`Refreshed ${result.totalTables} tables`);
+      
+      // Also refresh users
+      try {
+        const usersData = await runStatusDbService.getUsersWithData();
+        setRunStatusUsers(usersData.users);
+        console.log(`Refreshed ${result.totalTables} tables and ${usersData.users.length} users`);
+      } catch (userError) {
+        console.error('Error refreshing users:', userError);
+        console.log(`Refreshed ${result.totalTables} tables`);
+      }
     } catch (error: any) {
       console.error('Error refreshing tables:', error);
       setRunStatusError(error.response?.data?.details || error.message || 'Failed to refresh tables');
     } finally {
       setIsRefreshingTables(false);
     }
+  };
+
+  // Handle user selection to show their specific tables
+  const handleUserSelection = (user: any) => {
+    setSelectedRunStatusUser(user);
+    setUserSpecificTables(user.tables || []);
+    console.log(`Selected user: ${user.username} with ${user.tables?.length || 0} tables`);
+  };
+
+  // Handle going back to user list
+  const handleBackToUsers = () => {
+    setSelectedRunStatusUser(null);
+    setUserSpecificTables([]);
   };
 
   // Filter dbFiles for RTL_version column when in RTL view and dbFiles change
@@ -943,26 +986,86 @@ export default function RunStatus() {
                 </div>
               ) : !simpleFlowData ? (
                 <div className="p-8">
-                  <motion.h4 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-xl font-bold mb-6" 
-                    style={{ color: 'var(--color-text)' }}
-                  >
-                    Select a table to analyze:
-                  </motion.h4>
-                  <motion.p 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="text-base mb-6" 
-                    style={{ color: 'var(--color-text-muted)' }}
-                  >
-                    {isRunStatusConnected 
-                      ? 'Choose any table from the Run Status database. The system will analyze the data and create a simple flow visualization.'
-                      : 'Choose any table from your database. The system will analyze the first row and create a simple flow visualization.'
-                    }
-                  </motion.p>
+                  {/* Show different content based on user selection */}
+                  {selectedRunStatusUser ? (
+                    // User-specific tables view
+                    <>
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <motion.h4 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-xl font-bold mb-2" 
+                            style={{ color: 'var(--color-text)' }}
+                          >
+                            {selectedRunStatusUser.username}'s Tables
+                          </motion.h4>
+                          <motion.p 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="text-base" 
+                            style={{ color: 'var(--color-text-muted)' }}
+                          >
+                            {selectedRunStatusUser.totalRuns} total runs across {userSpecificTables.length} tables
+                          </motion.p>
+                        </div>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={handleBackToUsers}
+                          className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm transition-all duration-300 font-medium"
+                        >
+                          ← Back to Users
+                        </motion.button>
+                      </div>
+                    </>
+                  ) : isRunStatusConnected && runStatusUsers.length > 0 ? (
+                    // Users list view
+                    <>
+                      <motion.h4 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="text-xl font-bold mb-6" 
+                        style={{ color: 'var(--color-text)' }}
+                      >
+                        Users with Data in Run Status Database
+                      </motion.h4>
+                      <motion.p 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="text-base mb-6" 
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        Select a user to view their tables and analyze their data. Found {runStatusUsers.length} users with data.
+                      </motion.p>
+                    </>
+                  ) : (
+                    // Default table selection view
+                    <>
+                      <motion.h4 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="text-xl font-bold mb-6" 
+                        style={{ color: 'var(--color-text)' }}
+                      >
+                        {isRunStatusConnected && isAdmin ? 'Administrator Tables' : 'Select a table to analyze:'}
+                      </motion.h4>
+                      <motion.p 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="text-base mb-6" 
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        {isRunStatusConnected 
+                          ? (isAdmin ? 'Admin view: All tables in the Run Status database.' : 'Choose any table from the Run Status database. The system will analyze the data and create a simple flow visualization.')
+                          : 'Choose any table from your database. The system will analyze the first row and create a simple flow visualization.'
+                        }
+                      </motion.p>
+                    </>
+                  )}
                   {(dbError || runStatusError) && (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -976,8 +1079,100 @@ export default function RunStatus() {
                   
                   {/* Show automated database tables first, then manual ones */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* Automated Run Status Database Tables */}
-                    {isRunStatusConnected && runStatusTables.map((table, index) => (
+                    {/* Show Users List */}
+                    {isRunStatusConnected && !selectedRunStatusUser && runStatusUsers.length > 0 && runStatusUsers.map((user, index) => (
+                      <motion.div
+                        key={`user-${user.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300 relative"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: 'var(--color-success)',
+                          borderWidth: '2px',
+                          boxShadow: '0 4px 15px var(--color-success-20)'
+                        }}
+                        onClick={() => handleUserSelection(user)}
+                      >
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 text-xs rounded-full" style={{
+                            backgroundColor: user.role === 'admin' ? 'var(--color-warning-10)' : 'var(--color-success-10)',
+                            color: user.role === 'admin' ? 'var(--color-warning)' : 'var(--color-success)'
+                          }}>
+                            {user.role}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {user.username}
+                          </h5>
+                          <UserIcon className="w-6 h-6" style={{ color: 'var(--color-success)' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          User with data in database
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Tables: {user.tables?.length || 0}</span>
+                          <span>Runs: {user.totalRuns || 0}</span>
+                        </div>
+                      </motion.div>
+                    ))}
+
+                    {/* Show User-Specific Tables */}
+                    {selectedRunStatusUser && userSpecificTables.map((table, index) => (
+                      <motion.div
+                        key={`user-table-${table.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="p-6 rounded-xl border cursor-pointer transition-all duration-300 relative"
+                        style={{
+                          backgroundColor: 'var(--color-surface)',
+                          borderColor: 'var(--color-info)',
+                          borderWidth: '2px',
+                          boxShadow: '0 4px 15px var(--color-info-20)'
+                        }}
+                        onClick={() => handleRunStatusSimpleAnalyze(table)}
+                      >
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 text-xs rounded-full" style={{
+                            backgroundColor: 'var(--color-info-10)',
+                            color: 'var(--color-info)'
+                          }}>
+                            User Data
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="font-bold truncate text-lg" style={{ color: 'var(--color-text)' }}>
+                            {table.table_name}
+                          </h5>
+                          <TableCellsIcon className="w-6 h-6" style={{ color: 'var(--color-info)' }} />
+                        </div>
+                        <p className="text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                          {table.file_type}
+                        </p>
+                        <div className="flex justify-between items-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                          <span>Schema: {table.schema_name || 'public'}</span>
+                          <span>User Rows: {table.user_specific_count || table.row_count}</span>
+                        </div>
+                        {isSimpleAnalyzing && selectedRunStatusTable?.id === table.id && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded-xl">
+                            <div className="flex items-center text-white">
+                              <ArrowPathIcon className="w-5 h-5 mr-2 animate-spin" />
+                              Analyzing...
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+
+                    {/* Show Admin Tables (when no users selected and admin) */}
+                    {isRunStatusConnected && !selectedRunStatusUser && (runStatusUsers.length === 0 || isAdmin) && runStatusTables.map((table, index) => (
                       <motion.div
                         key={`runstatus-${table.id}`}
                         initial={{ opacity: 0, y: 20 }}

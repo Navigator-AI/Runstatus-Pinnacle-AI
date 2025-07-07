@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const ini = require('ini');
 const { db } = require('../database');
+const { Pool } = require('pg');
 const router = express.Router();
 
 // Middleware to check if user is authenticated
@@ -172,6 +173,451 @@ router.get('/api-key', isAuthenticated, (req, res) => {
   } catch (error) {
     console.error('Error getting API key:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get RunStatus DB configuration
+router.get('/runstatus-db/config', isAuthenticated, async (req, res) => {
+  try {
+    const { db } = require('../database');
+    
+    // Get user's active RunStatus DB configuration
+    const result = await db.query(
+      'SELECT host, port, database_name, username, password FROM user_runstatus_db_configurations WHERE user_id = $1 AND is_active = TRUE',
+      [req.session.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(200).json({
+        config: {
+          host: 'localhost',
+          port: 5432,
+          database: 'runstatus',
+          user: 'postgres',
+          password: ''
+        }
+      });
+    }
+    
+    const dbConfig = result.rows[0];
+    res.json({
+      config: {
+        host: dbConfig.host,
+        port: dbConfig.port,
+        database: dbConfig.database_name,
+        user: dbConfig.username,
+        password: dbConfig.password
+      }
+    });
+  } catch (error) {
+    console.error('Error getting RunStatus DB config:', error);
+    res.status(500).json({ error: 'Failed to get RunStatus DB configuration' });
+  }
+});
+
+// Get RunStatus DB configuration
+router.get('/runstatus-db/config', isAuthenticated, async (req, res) => {
+  try {
+    const { db } = require('../database');
+    
+    const result = await db.query(
+      'SELECT host, port, database_name, username FROM user_runstatus_db_configurations WHERE user_id = $1 AND is_active = TRUE',
+      [req.session.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({ 
+        success: true, 
+        config: {
+          host: '',
+          port: 5432,
+          database: '',
+          user: '',
+          password: ''
+        }
+      });
+    }
+    
+    const config = result.rows[0];
+    res.json({ 
+      success: true, 
+      config: {
+        host: config.host,
+        port: config.port,
+        database: config.database_name,
+        user: config.username,
+        password: '' // Never return password
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error loading RunStatus DB configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to load RunStatus DB configuration' 
+    });
+  }
+});
+
+// Test RunStatus DB connection
+router.post('/runstatus-db/test', isAuthenticated, async (req, res) => {
+  const { host, port, database, user, password } = req.body;
+  
+  if (!host || !port || !database || !user || !password) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'All database connection fields are required' 
+    });
+  }
+  
+  let testPool = null;
+  
+  try {
+    // Create a test connection pool
+    testPool = new Pool({
+      host,
+      port: parseInt(port),
+      database,
+      user,
+      password,
+      max: 1,
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 10000,
+      ssl: false
+    });
+    
+    // Test the connection
+    const client = await testPool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    
+    res.json({ 
+      success: true, 
+      message: 'Connection test successful' 
+    });
+    
+  } catch (error) {
+    console.error('RunStatus DB connection test failed:', error);
+    res.status(400).json({ 
+      success: false, 
+      error: `Connection test failed: ${error.message}` 
+    });
+  } finally {
+    if (testPool) {
+      try {
+        await testPool.end();
+      } catch (error) {
+        console.error('Error closing test pool:', error);
+      }
+    }
+  }
+});
+
+// Save RunStatus DB configuration
+router.post('/runstatus-db/config', isAuthenticated, async (req, res) => {
+  const { host, port, database, user, password } = req.body;
+  
+  if (!host || !port || !database || !user || !password) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'All database connection fields are required' 
+    });
+  }
+  
+  try {
+    const { db } = require('../database');
+    
+    // Start a transaction
+    const client = await db.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Deactivate any existing configurations for this user
+      await client.query(
+        'UPDATE user_runstatus_db_configurations SET is_active = FALSE WHERE user_id = $1',
+        [req.session.userId]
+      );
+      
+      // Insert new configuration
+      await client.query(`
+        INSERT INTO user_runstatus_db_configurations 
+        (user_id, host, port, database_name, username, password, is_active) 
+        VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+      `, [req.session.userId, host, port, database, user, password]);
+      
+      await client.query('COMMIT');
+      
+      // Notify the RunStatus DB service to reconnect with new configuration
+      try {
+        const runStatusDbService = require('../services/runStatusDbService');
+        setTimeout(() => {
+          runStatusDbService.reloadUserConfig(req.session.userId).catch(error => {
+            console.error('Error reloading RunStatus DB service config:', error);
+          });
+        }, 1000);
+      } catch (serviceError) {
+        console.error('Error notifying RunStatus DB service:', serviceError);
+        // Continue even if service notification fails
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'RunStatus DB configuration saved successfully. The service will reconnect automatically.' 
+      });
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    
+  } catch (error) {
+    console.error('Error saving RunStatus DB configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to save RunStatus DB configuration' 
+    });
+  }
+});
+
+// Disconnect RunStatus DB
+router.post('/runstatus-db/disconnect', isAuthenticated, async (req, res) => {
+  try {
+    const { db } = require('../database');
+    
+    // Start a transaction
+    const client = await db.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Deactivate all configurations for this user
+      await client.query(
+        'UPDATE user_runstatus_db_configurations SET is_active = FALSE WHERE user_id = $1',
+        [req.session.userId]
+      );
+      
+      await client.query('COMMIT');
+      
+      // Disconnect the user from the RunStatus DB service
+      try {
+        const runStatusDbService = require('../services/runStatusDbService');
+        await runStatusDbService.disconnectUser(req.session.userId);
+      } catch (serviceError) {
+        console.error('Error disconnecting RunStatus DB service:', serviceError);
+        // Continue even if service disconnection fails
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'RunStatus DB disconnected successfully.' 
+      });
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    
+  } catch (error) {
+    console.error('Error disconnecting RunStatus DB:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to disconnect RunStatus DB' 
+    });
+  }
+});
+
+// Save user database configuration to users_db_details table in RunStatus database
+router.post('/user-db-details/save', isAuthenticated, async (req, res) => {
+  const { host, port, database, user, password } = req.body;
+  
+  // Validate required fields
+  if (!host || !port || !database || !user || !password) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'All fields are required: host, port, database, user, password' 
+    });
+  }
+
+  try {
+    // Connect to RunStatus database
+    const { Pool } = require('pg');
+    const runStatusConfig = {
+      host: 'localhost',
+      port: 5432,
+      database: 'runstatus',
+      user: 'postgres',
+      password: 'Welcom@123',
+      max: 10,
+      ssl: false
+    };
+    
+    const pool = new Pool(runStatusConfig);
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Get username from main database for the user_id
+      const { db } = require('../database');
+      const userResult = await db.query('SELECT username FROM users WHERE id = $1', [req.session.userId]);
+      const username = userResult.rows[0]?.username || req.session.userId;
+      
+      // First, deactivate any existing active configurations for this user
+      await client.query(
+        'UPDATE users_db_details SET is_active = FALSE WHERE user_id = $1',
+        [req.session.userId]
+      );
+      
+      // Insert new configuration into RunStatus database
+      await client.query(`
+        INSERT INTO users_db_details (user_id, username, host, port, database_name, db_username, db_password, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [req.session.userId, username, host, port, database, user, password]);
+      
+      await client.query('COMMIT');
+      
+      console.log(`Database configuration saved for user ${req.session.userId} (${username}) in RunStatus database`);
+      
+      res.json({ 
+        success: true, 
+        message: 'Connected Successfully! Database configuration saved.' 
+      });
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+      await pool.end();
+    }
+    
+  } catch (error) {
+    console.error('Error saving user database configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to save database configuration' 
+    });
+  }
+});
+
+// Get user database configuration from users_db_details table in RunStatus database
+router.get('/user-db-details/config', isAuthenticated, async (req, res) => {
+  try {
+    // Connect to RunStatus database
+    const { Pool } = require('pg');
+    const runStatusConfig = {
+      host: 'localhost',
+      port: 5432,
+      database: 'runstatus',
+      user: 'postgres',
+      password: 'Welcom@123',
+      max: 10,
+      ssl: false
+    };
+    
+    const pool = new Pool(runStatusConfig);
+    const client = await pool.connect();
+    
+    try {
+      const result = await client.query(
+        'SELECT host, port, database_name, db_username FROM users_db_details WHERE user_id = $1 AND is_active = TRUE',
+        [req.session.userId]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.json({ 
+          success: true, 
+          config: {
+            host: '',
+            port: 5432,
+            database: '',
+            user: '',
+            password: ''
+          }
+        });
+      }
+      
+      const config = result.rows[0];
+      res.json({ 
+        success: true, 
+        config: {
+          host: config.host,
+          port: config.port,
+          database: config.database_name,
+          user: config.db_username,
+          password: '' // Never return password for security
+        }
+      });
+      
+    } finally {
+      client.release();
+      await pool.end();
+    }
+    
+  } catch (error) {
+    console.error('Error loading user database configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to load database configuration' 
+    });
+  }
+});
+
+// Disconnect user database configuration from RunStatus database
+router.post('/user-db-details/disconnect', isAuthenticated, async (req, res) => {
+  try {
+    // Connect to RunStatus database
+    const { Pool } = require('pg');
+    const runStatusConfig = {
+      host: 'localhost',
+      port: 5432,
+      database: 'runstatus',
+      user: 'postgres',
+      password: 'Welcom@123',
+      max: 10,
+      ssl: false
+    };
+    
+    const pool = new Pool(runStatusConfig);
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Deactivate all configurations for this user
+      await client.query(
+        'UPDATE users_db_details SET is_active = FALSE WHERE user_id = $1',
+        [req.session.userId]
+      );
+      
+      await client.query('COMMIT');
+      
+      console.log(`Database configuration disconnected for user ${req.session.userId} in RunStatus database`);
+      
+      res.json({ 
+        success: true, 
+        message: 'Database disconnected successfully.' 
+      });
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+      await pool.end();
+    }
+    
+  } catch (error) {
+    console.error('Error disconnecting user database:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to disconnect database' 
+    });
   }
 });
 

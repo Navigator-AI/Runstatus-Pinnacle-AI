@@ -16,8 +16,13 @@ const isAuthenticated = (req, res, next) => {
 // Get connection status and available tables
 router.get('/status', isAuthenticated, async (req, res) => {
   try {
-    const status = runStatusDbService.getConnectionStatus();
-    const tablesInfo = runStatusDbService.getTables();
+    const userId = req.session.userId;
+    
+    // Initialize user connection if not already done
+    await runStatusDbService.initializeUserConnection(userId);
+    
+    const status = runStatusDbService.getConnectionStatusForUser(userId);
+    const tablesInfo = runStatusDbService.getTablesForUser(userId);
     
     res.json({
       success: true,
@@ -39,7 +44,8 @@ router.get('/status', isAuthenticated, async (req, res) => {
 // Get list of tables (refreshed automatically)
 router.get('/tables', isAuthenticated, async (req, res) => {
   try {
-    const tablesInfo = runStatusDbService.getTables();
+    const userId = req.session.userId;
+    const tablesInfo = runStatusDbService.getTablesForUser(userId);
     
     if (!tablesInfo.isConnected) {
       return res.status(503).json({
@@ -68,13 +74,35 @@ router.get('/tables', isAuthenticated, async (req, res) => {
   }
 });
 
+// Get users who have data in the database
+router.get('/users-with-data', isAuthenticated, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const usersWithData = await runStatusDbService.getUsersWithData(userId);
+    
+    res.json({
+      success: true,
+      users: usersWithData
+    });
+  } catch (error) {
+    console.error('Error getting users with data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get users with data',
+      details: error.message,
+      users: []
+    });
+  }
+});
+
 // Get table data preview
 router.get('/table/:tableName/preview', isAuthenticated, async (req, res) => {
   try {
     const { tableName } = req.params;
     const limit = parseInt(req.query.limit) || 10;
+    const userId = req.session.userId;
     
-    const tableData = await runStatusDbService.getTableData(tableName, limit);
+    const tableData = await runStatusDbService.getTableDataForUser(userId, tableName, limit);
     
     res.json({
       success: true,
@@ -94,9 +122,10 @@ router.get('/table/:tableName/preview', isAuthenticated, async (req, res) => {
 router.post('/analyze-simple/:tableName', isAuthenticated, async (req, res) => {
   try {
     const { tableName } = req.params;
+    const userId = req.session.userId;
     
     // Get table data
-    const tableData = await runStatusDbService.getTableData(tableName, 1000);
+    const tableData = await runStatusDbService.getTableDataForUser(userId, tableName, 1000);
     
     if (!tableData.data || tableData.data.length === 0) {
       return res.status(400).json({
@@ -239,9 +268,10 @@ router.post('/analyze-simple/:tableName', isAuthenticated, async (req, res) => {
 router.post('/analyze-branch/:tableName', isAuthenticated, async (req, res) => {
   try {
     const { tableName } = req.params;
+    const userId = req.session.userId;
     
     // Get table data
-    const tableData = await runStatusDbService.getTableData(tableName, 1000);
+    const tableData = await runStatusDbService.getTableDataForUser(userId, tableName, 1000);
     
     if (!tableData.data || tableData.data.length === 0) {
       return res.status(400).json({
@@ -343,9 +373,10 @@ router.post('/analyze-branch/:tableName', isAuthenticated, async (req, res) => {
 router.post('/analyze-rtl/:tableName', isAuthenticated, async (req, res) => {
   try {
     const { tableName } = req.params;
+    const userId = req.session.userId;
     
     // Get table data
-    const tableData = await runStatusDbService.getTableData(tableName, 1000);
+    const tableData = await runStatusDbService.getTableDataForUser(userId, tableName, 1000);
     
     if (!tableData.data || tableData.data.length === 0) {
       return res.status(400).json({
@@ -563,5 +594,32 @@ function createBasicFlowFallback(tableData) {
     }
   };
 }
+
+// Force refresh tables for user
+router.post('/refresh', isAuthenticated, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    
+    // Refresh tables for the user
+    await runStatusDbService.refreshTablesForUser(userId);
+    
+    const tablesInfo = runStatusDbService.getTablesForUser(userId);
+    
+    res.json({
+      success: true,
+      message: 'Tables refreshed successfully',
+      tables: tablesInfo.tables,
+      totalTables: tablesInfo.totalTables,
+      lastRefresh: tablesInfo.lastRefresh
+    });
+  } catch (error) {
+    console.error('Error refreshing tables:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to refresh tables',
+      details: error.message
+    });
+  }
+});
 
 module.exports = router;

@@ -15,6 +15,7 @@ export interface RunStatusTable {
   row_count?: number;
   columns?: string[];
   last_updated?: string;
+  user_specific_count?: number; // For user-specific row counts
 }
 
 export interface RunStatusConnectionStatus {
@@ -97,6 +98,17 @@ const runStatusDbService = {
       return response.data;
     } catch (error: any) {
       console.error('Error getting tables:', error);
+      throw error;
+    }
+  },
+
+  // Get users who have data in the database
+  getUsersWithData: async (): Promise<{ success: boolean; users: any[] }> => {
+    try {
+      const response = await api.get('/runstatus-db/users-with-data');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error getting users with data:', error);
       throw error;
     }
   },
